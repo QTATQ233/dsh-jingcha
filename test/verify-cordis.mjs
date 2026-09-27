@@ -20,6 +20,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as plugin from '../lib/index.js';
 import { instances } from '../lib/index.js';
+import { DEFAULTS } from '../lib/core.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.join(here, '..', '.selftest-cordis');
@@ -72,9 +73,10 @@ const realLog = console.log;
 console.log = (...args) => logs.push(args.join(' '));
 console.log = realLog;
 
-const fiber = await ctx.plugin(plugin, { dataDir: outDir, heartbeatMs: 600_000, console: false, statusEveryMs: 600_000 });
+const fiber = await ctx.plugin(plugin, { dataDir: outDir, heartbeatMs: 600_000, console: false, statusEveryMs: 600_000, toolEnabled: true });
 check('ctx.plugin() 成功挂载（inject: tools 握手通过）', instances.length === 1, String(instances.length));
 check('工具已注册到 ctx.tools', registered.length === 1 && registered[0].name === 'jingcha_status', String(registered.length));
+check('默认不注册工具（0 token 承诺）', DEFAULTS.toolEnabled === false, String(DEFAULTS.toolEnabled));
 
 // 真实 waterfall：pre-execute（next 的裁决必须原样返回）
 const exec = { callId: 'c1', name: 'pwsh', arguments: { command: 'echo hi' } };

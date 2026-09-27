@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read        # 只读就够：CI 不推送、不建 Release
+
 jobs:
   selftest:
     runs-on: ubuntu-latest

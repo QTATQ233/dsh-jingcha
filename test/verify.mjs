@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createMonitor, classifyError, formatDuration, measureValue, previewArgs, STATES } from '../lib/core.js';
+import { createMonitor, classifyError, formatDuration, measureValue, previewArgs, STATES, DEFAULTS, redactText } from '../lib/core.js';
 import { apply, instances } from '../lib/index.js';
 import * as pluginModule from '../lib/index.js';
 
@@ -322,7 +322,7 @@ function makeFakeCtx() {
   console.log = (...args) => logs.push(args.join(' '));
   console.warn = (...args) => logs.push(args.join(' '));
   let applied = true;
-  try { apply(fake.ctx, { dataDir: outDir, heartbeatMs: 600_000, console: true, statusEveryMs: 600_000 }); }
+  try { apply(fake.ctx, { dataDir: outDir, heartbeatMs: 600_000, console: true, statusEveryMs: 600_000, toolEnabled: true }); }
   catch (error) { applied = false; check('apply 不抛异常', false, error && error.message); }
   console.log = realLog;
   console.warn = realWarn;
@@ -598,6 +598,30 @@ section('配置：enabled=false 时完全不挂载');
 }
 
 console.log('\n=== 汇总 ===');
+// ── 安全审查修复回归（v0.4.3）────────────────────────────────────────────
+{
+  const P = DEFAULTS.redactPatterns;
+  const cases = [
+    ['--password hunter2', 'hunter2'],
+    ['-p s3cret', 's3cret'],
+    ['{"password":"hunter2"}', 'hunter2'],
+    ['pwd=s3cret', 's3cret'],
+    ['sig:abcdef', 'abcdef'],
+    ['token=abc123', 'abc123'],
+  ];
+  let leaked = 0;
+  for (const [input, secret] of cases) if (redactText(input, P).indexOf(secret) >= 0) leaked++;
+  check('脱敏覆盖空格分隔/引号/裸键（安全审查 M1）', leaked === 0, String(leaked));
+  check('正常文本不被误脱敏', redactText('普通命令 echo hello 中文', P) === '普通命令 echo hello 中文');
+
+  const wide = createMonitor({ memoryLeakWindow: 100000, memoryLeakGrowth: 0.1 });
+  for (let i = 0; i < 600; i++) wide.noteMemory(50 * 1024 * 1024 + i * 1024, i * 1000);
+  const peeked = wide.peek();
+  const samples = peeked && peeked.memorySamples ? peeked.memorySamples.length : (wide.snapshot().runtime.memoryLeak.samples || 0);
+  check('memoryLeakWindow 越界被夹紧（安全审查 M2）', wide.snapshot().runtime.memoryLeak.window <= 120, String(wide.snapshot().runtime.memoryLeak.window));
+  check('采样数组不会无界增长（安全审查 M2）', samples > 0 && samples <= 240, String(samples));
+}
+
 console.log('检查项 ' + checks + ' 个，失败 ' + failures + ' 个');
 if (failures > 0) {
   console.log('自检未通过 ✗');

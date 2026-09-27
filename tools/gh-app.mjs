@@ -26,7 +26,7 @@ import { createSign } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const KEY_DIR = "C:\\dsh-jingcha\\.gh-app";
+const KEY_DIR = process.env.JINGCHA_GH_APP_DIR || "C:\\dsh-jingcha\\.gh-app";   // 换机/换目录可用环境变量覆盖
 const KEY_PATH = path.join(KEY_DIR, "private-key.pem");
 const CFG_PATH = path.join(KEY_DIR, "app.json");
 const API = "https://api.github.com";
@@ -46,7 +46,8 @@ function setupHint(reason) {
   console.log("4) Install App → 选 All repositories（通用）或指定仓库");
   console.log("");
   console.log("做完这四步再跑同一条命令即可；私钥只在本机，我不会读它的内容，也不会把它写进任何仓库。");
-  process.exit(2);
+  process.exitCode = 2;
+  return null;
 }
 
 function readConfig() {
@@ -68,31 +69,47 @@ function appJwt(appId, privateKey) {
   return header + "." + payload + "." + base64url(signer.sign(privateKey));
 }
 
-async function api(pathname, options = {}, token) {
+async function api(pathname, options = {}, token, tolerate404 = false) {
   const headers = Object.assign({ Accept: "application/vnd.github+json", "User-Agent": "jingcha-gh-app" }, options.headers || {});
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch(API + pathname, Object.assign({}, options, { headers }));
+  const res = await fetch(API + pathname, Object.assign({}, options, { headers, signal: AbortSignal.timeout(20000) }));   // 不给 GitHub 无限等待的机会
   const text = await res.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!res.ok) {
+    if (tolerate404 && res.status === 404) return null;
     console.error("✗ " + options.method + " " + pathname + " -> HTTP " + res.status);
     console.error("  " + (typeof body === "string" ? body.slice(0, 300) : JSON.stringify(body).slice(0, 300)));
-    process.exit(1);
+    process.exitCode = 1;
+    throw new Error("api failed: " + res.status);
   }
   return body;
 }
 
 async function installationToken() {
-  const { appId, privateKey } = readConfig();
+  const config = readConfig();
+  if (!config) return { skip: true };
+  const { appId, privateKey } = config;
   const jwt = appJwt(appId, privateKey);
   const installations = await api("/app/installations", {}, jwt);
   if (!Array.isArray(installations) || installations.length === 0) {
-    console.log("App 已配置，但还没有安装到任何账号/仓库。去 App 页面点 Install App 选仓库即可。");
-    process.exit(2);
+    console.log("App 已配置，但还没有安装到任何账号/仓库。");
+    console.log("下一步：打开 https://github.com/settings/apps/jingcha-release-bot/installations -> Install -> 选 All repositories -> Install");
+    process.exitCode = 2;
+    return { skip: true };
   }
   const wanted = process.env.GH_INSTALLATION_ID;
-  const installation = wanted ? installations.find((i) => String(i.id) === String(wanted)) || installations[0] : installations[0];
+  let installation = wanted ? installations.find((i) => String(i.id) === String(wanted)) : null;
+  if (wanted && !installation) { console.error("✗ GH_INSTALLATION_ID=" + wanted + " 不在这个 App 的安装列表里。"); process.exitCode = 2; return { skip: true }; }
+  if (!installation) {
+    if (installations.length > 1) {
+      console.error("✗ 这个 App 有 " + installations.length + " 个安装，请用 GH_INSTALLATION_ID 指定一个：");
+      for (const item of installations) console.error("   " + item.id + "  " + (item.account ? item.account.login : '?'));
+      process.exitCode = 2;
+      return { skip: true };
+    }
+    installation = installations[0];
+  }
   const token = await api("/app/installations/" + installation.id + "/access_tokens", { method: "POST" }, jwt);
   return { token: token.token, installation, installations, appId };
 }
@@ -113,10 +130,25 @@ function changelogSection(tag) {
   return out.join("\n").trim();
 }
 
+process.on("unhandledRejection", (error) => {
+  const message = String((error && error.message) || error);
+  if (/certificate|UNABLE_TO_VERIFY|self-signed|fetch failed/i.test(message)) {
+    console.error("✗ HTTPS 证书校验失败 —— 本机装了 HTTPS 加速（Steam++/Watt Toolkit）会替换证书。");
+    console.error("  用这个跑：node --use-system-ca tools/gh-app.mjs ...（让它信任系统证书库）");
+    process.exitCode = 1;
+    return;
+  }
+  console.error("✗ " + message);
+  process.exitCode = process.exitCode || 1;
+});
+
 const [command, ...rest] = process.argv.slice(2);
 if (!command) { setupHint("没给命令"); }
 
-const { token, installation, installations, appId } = await installationToken();
+const session = await installationToken();
+if (!session || session.skip) { /* 已打印引导，直接退出 */ }
+else {
+const { token, installation, installations, appId } = session;
 const account = installation && installation.account ? installation.account.login : "?";
 
 if (command === "whoami") {
@@ -155,7 +187,7 @@ if (command === "whoami") {
 } else if (command === "release") {
   const [target, tag] = rest;
   if (!target || !tag) { console.error("用法: node tools/gh-app.mjs release <owner/repo> v0.4.2"); process.exit(2); }
-  const existing = await api("/repos/" + target + "/releases/tags/" + tag, {}, token).catch(() => null);
+  const existing = await api("/repos/" + target + "/releases/tags/" + tag, {}, token, true);
   const body = changelogSection(tag) || ("Release " + tag);
   if (existing) {
     const res = await api("/repos/" + target + "/releases/" + existing.id, { method: "PATCH", body: JSON.stringify({ body }) }, token);
@@ -166,5 +198,6 @@ if (command === "whoami") {
   }
 } else {
   console.error("未知命令: " + command + "（可用: whoami / repos / status / topics / describe / release）");
-  process.exit(2);
+  process.exitCode = 2;
+}
 }

@@ -29,3 +29,10 @@
 
 发现安全问题时请**不要**开公开 issue，直接在 GitHub 上用 Security → Report a vulnerability 提交。
 请附：复现步骤、影响面、你期望的行为。确认后我们会尽快修复并在 CHANGELOG 里致谢（如果你愿意署名）。
+
+## 观测数据的敏感性（0.4.3 独立审查结论）
+
+- `events.jsonl` / `status.json` 里有**工具参数摘要**（≤120 字、默认脱敏）——它们等价于敏感文件，分享前请先看一眼，或用 `previewArgs: false` 关掉；
+- 脱敏默认规则覆盖 `token/secret/password/pwd/key/sig/cookie`、`Bearer …`、`--password x` 这类空格分隔形式；**过脱敏是刻意的安全方向**（例如 `-p 8080` 也会被遮掉），嫌碍事就改 `redactPatterns`；
+- `apiToken` 默认空：**单机单用户可以用默认**；多用户 / 共享机器请设 `apiToken`（比较走常量时间，避免时序侧信道）；
+- 已知边界（设计取舍，非漏洞）：① 在途列表里若某调用没登记到 controller（`exec.callId` 缺失等），⛔ 会明确回 `not-live` 而不是乱杀；② 接口没有速率限制，本机进程可以高频打（回环前提）；③ 同进程死循环无法硬杀，只能中止信号。

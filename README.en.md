@@ -141,6 +141,9 @@ previewArgs / redactPreviews / redactPatterns · apiToken
 - The plugin makes no network requests, pulls in no third-party code and evaluates nothing dynamically; the widget only ever assigns textContent, so there is no injection surface.
 - status.json and events.jsonl contain truncated argument previews with secret-looking fragments redacted — skim them before sharing, or set previewArgs: false.
 - Residual risk: loopback means "everyone on this machine". On a multi-user box, set apiToken.
+- The observation data is sensitive by nature: events.jsonl / status.json hold **argument previews** (120 chars max, redacted by default). Skim them before sharing, or set previewArgs: false.
+- Redaction deliberately over-masks (--password x, token=…, Bearer …, even -p 8080). Loosen it via redactPatterns if that bothers you.
+- Two independent security reviews (runtime + toolchain) for 0.4.3 found no high-severity issues; fixes include redaction coverage, sample clamping, constant-time token comparison and fail-closed publish checks (see CHANGELOG).
 
 More detail in [SECURITY.md](SECURITY.md).
 

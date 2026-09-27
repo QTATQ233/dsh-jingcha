@@ -150,6 +150,9 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 - 插件**不联网、无第三方依赖、不做动态执行**；客户端全程 textContent（无 XSS 面）；
 - events.jsonl / status.json 含**工具参数摘要**（默认截断 120 字符并对敏感片段打码），分享前先看一眼，或用 previewArgs: false 关掉；
 - 残余风险：回环等于「本机全体」，同机其它账号/进程仍可访问 —— 多用户环境请设 apiToken。
+- 观测数据本身是敏感的：`events.jsonl` / `status.json` 含**参数摘要**（≤120 字、默认脱敏），分享前先看一眼，或用 `previewArgs: false` 关掉；
+- 脱敏默认会把 `--password x`、`token=…`、`Bearer …` 这类片段遮成 `[已脱敏]`，**过脱敏是故意的**（`-p 8080` 也会被遮），要放松就改 `redactPatterns`；
+- 0.4.3 独立安全审查（运行时 + 工具链两路）结论：无严重/高危；已修脱敏覆盖、采样越界、token 常量时间比较、发布自检同源降级等问题（见 CHANGELOG）。
 
 细节见 [SECURITY.md](SECURITY.md)。
 

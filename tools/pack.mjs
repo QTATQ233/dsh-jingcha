@@ -19,7 +19,7 @@ const stage = path.join(root, "dist", "stage", slug + "-" + version);
 const zip = path.join(root, "dist", slug + "-" + version + ".zip");
 const SKIP = new Set([".backup", ".selftest-out", "node_modules", "dist", ".git", ".privacy-needles.json"]);
 const ALLOWED_DOTFILES = new Set([".gitattributes", ".gitignore"]);
-const FORBIDDEN_NAMES = /(privacy-needles|gh-token|id_ed25519|ssh-config|widget-settings\.json|^status\.json$|^events\.jsonl$)/;
+const FORBIDDEN_NAMES = /(privacy-needles|gh-token|id_ed25519|ssh-config|widget-settings\.json|^status\.json$|^events\.jsonl$)/i;   // 大小写不敏感（安全审查 B-Q1）
 
 // 只清暂存目录与旧 zip；**不要**动 dist/publish（那是 git 仓库）
 rmSync(path.join(root, "dist", "stage"), { recursive: true, force: true });
