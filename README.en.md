@@ -66,7 +66,7 @@
 dsh plugin --profile web add github:you233/dsh-jingcha
 
 # self-tests (zero dependencies, no dsh required)
-node test/verify.mjs          # 107 checks
+node test/verify.mjs          # 121 checks
 node test/verify-client.mjs   #  90 checks (widget, DOM stubs)
 ```
 
@@ -97,13 +97,14 @@ and one-command rollback. See [docs/SHARING.md](docs/SHARING.md).
 | silent | an agent is running but nothing streamed for 90s | look at the model side |
 | awaiting approval | pre-execute blocked on approval for 20s | approve it — do not mistake it for a hang |
 | error storm | 3 consecutive failures | stop and read the error classes |
+| memory leak warning | RSS rises for 5 consecutive heartbeats and grows more than 10% (memoryLeakWindow / memoryLeakGrowth) | check for a real leak; raise the window/threshold for workloads that legitimately grow |
 
 <a id="configuration"></a>
 ## ⚙️ Configuration
 
 Everything lives in [cordis.patch.yml](cordis.patch.yml) with inline comments:
 dataDir · displayName · toolEnabled · slowCallMs / hangCallMs / stuckCallMs · silenceMs · approvalWarnMs ·
-autoKillAfterMs · previewArgs / redactPreviews · apiToken.
+autoKillAfterMs · memoryLeakWindow / memoryLeakGrowth · previewArgs / redactPreviews · apiToken.
 
 <a id="security"></a>
 ## 🔒 Security

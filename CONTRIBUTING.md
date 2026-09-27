@@ -6,7 +6,7 @@
 
 ```powershell
 # 三套自检（前两套零依赖，第三套也是 DOM 桩，不需要浏览器）
-node test/verify.mjs         # 107 项：判定逻辑 / 假 ctx 接线 / 路由栅栏 / 强停（含嵌套调用）
+node test/verify.mjs         # 121 项：判定逻辑 / 假 ctx 接线 / 路由栅栏 / 强停（含嵌套调用）
 node test/verify-client.mjs  #  90 项：挂件
 # 真 cordis 集成（需要 DSH 的 cordis 路径）
 $env:DSH_CORDIS='<...>\node_modules\@deepseek-ai\cordis\lib\index.js'; node test/verify-cordis.mjs

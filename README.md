@@ -79,7 +79,7 @@
 dsh plugin --profile web add github:you233/dsh-jingcha
 
 # 自检（零依赖，不需要 dsh 在跑）
-node test/verify.mjs          # 107 项
+node test/verify.mjs          # 121 项
 node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 ```
 
@@ -90,7 +90,7 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 ## ✨ 功能一览
 
 - **监察**：在 tools/pre-execute、tools/execute、tools/result 三层只读观察，记录耗时、结果字节、错误分类；
-- **判定**：慢 / 挂起 / 卡住 / 静默（有 agent 在跑却没有输出）/ 等待审批 / 错误风暴 / 插件自身报错；
+- **判定**：慢 / 挂起 / 卡住 / 静默（有 agent 在跑却没有输出）/ 等待审批 / 错误风暴 / **内存泄漏预警** / 插件自身报错；
 - **强停**：融合一个属于鲸察的 AbortController（**上游取消语义不变**），并且**在 pre-execute 就登记** ——
   所以嵌套子调用（父 id 加 :ptc: 序号）也能停；停不掉时返回人话原因，绝不错杀父调用；
 - **挂件**：可拖动、按调用时长分级变色、异常右侧弹提示、悬停省略号看全文（**不闪烁**）、五宫格复位、
@@ -109,6 +109,7 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 | 没有输出 | 有 agent 在跑但 90s 内没有流式帧 / 会话事件 / 工具结果 | 检查模型侧 |
 | 等待审批 | pre-execute 卡在审批超过 20s | 去界面点确认，别误判成卡死 |
 | 错误风暴 | 连续 3 次失败（errorStormCount） | 停手，先看错误分类 |
+| 内存泄漏预警 | RSS 连续 5 个心跳递增，且增幅超过 10%（memoryLeakWindow / memoryLeakGrowth） | 确认是不是真泄漏；长任务本身在涨就调大窗口或阈值 |
 | 插件自身报错 | 鲸察自己抛异常 | 报告 bug（它保证**不反过来搞坏工具调用**） |
 
 <a id="配置"></a>
@@ -125,6 +126,7 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 | silenceMs | 90s | 「没有输出」判定 |
 | approvalWarnMs | 20s | 等待审批提示 |
 | autoKillAfterMs | 0（关） | 自动强停阈值；**同时要求没有产出**，避免误杀慢任务 |
+| memoryLeakWindow / memoryLeakGrowth | 5 / 0.1 | 内存泄漏预警：连续多少个心跳递增、增幅超过多少才算 |
 | previewArgs / redactPreviews | true / true | 是否记录参数摘要 / 是否对 token、password 一类片段打码 |
 | apiToken | 空 | 设了就要求 x-jingcha-token 头（多用户机器建议设） |
 

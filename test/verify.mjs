@@ -162,6 +162,66 @@ section('判定：事件循环被阻塞');
   check('7000ms -> stalled（event-loop-blocked）', v.state === STATES.stalled && v.reasons.some((r) => r.kind === 'event-loop-blocked'), v.state);
 }
 
+section('判定：内存泄漏预警（RSS 连续递增 + 增幅超阈值）');
+{
+  // ① 连续 5 个心跳递增、总增幅约 27.6% -> 命中
+  const clock = fakeClock();
+  const m = createMonitor({ heartbeatMs: 1000, memoryLeakWindow: 5, memoryLeakGrowth: 0.1 }, clock);
+  let rss = 100 * 1024 * 1024;
+  for (let i = 0; i < 6; i++) { m.noteMemory(rss, clock()); if (i < 5) { rss = Math.round(rss * 1.05); clock.advance(1000); } }
+  const v = m.verdict();
+  const leak = v.reasons.find((r) => r.kind === 'memory-leak');
+  check('连续 5 个心跳递增且 >10% -> reason kind 是 memory-leak', Boolean(leak), v.reasons.map((r) => r.kind).join(','));
+  check('理由里带增长率 / 窗口 / 首尾 RSS', Boolean(leak) && leak.growth > 0.1 && leak.window === 5 && leak.fromRssBytes > 0 && leak.rssBytes > leak.fromRssBytes,
+    leak ? JSON.stringify({ growth: Number(leak.growth.toFixed(3)), window: leak.window, from: leak.fromRssBytes, to: leak.rssBytes }) : '');
+  check('状态是 degraded（是预警，不误报卡住）', v.state === STATES.degraded, v.state);
+  check('事件流里有一条 memory.leak（同一次只记一条）', m.drain().filter((e) => e.kind === 'memory.leak').length === 1);
+  check('快照里能读到 memoryLeak 明细', m.snapshot().runtime.memoryLeak.active === true && m.snapshot().runtime.memoryLeak.window === 5);
+  check('同时写进 findings（挂件「最近告警」能看到）', m.peek().findings.some((f) => f.kind === 'memory-leak'));
+}
+{
+  // ② 一直在涨但总增幅不到 10% -> 不命中
+  const clock = fakeClock();
+  const m = createMonitor({ memoryLeakWindow: 5, memoryLeakGrowth: 0.1 }, clock);
+  let rss = 100 * 1024 * 1024;
+  for (let i = 0; i < 6; i++) { m.noteMemory(rss, clock()); rss = Math.round(rss * 1.01); clock.advance(1000); }
+  const v = m.verdict();
+  check('递增但增幅只有 ~5% -> 不报内存泄漏', !v.reasons.some((r) => r.kind === 'memory-leak'), v.reasons.map((r) => r.kind).join(','));
+  check('没命中时快照里 active=false', m.snapshot().runtime.memoryLeak.active === false);
+}
+{
+  // ③ 中间回落一次（不满足"连续递增"）-> 不命中
+  const clock = fakeClock();
+  const m = createMonitor({ memoryLeakWindow: 5, memoryLeakGrowth: 0.1 }, clock);
+  const series = [100, 130, 120, 140, 150, 160].map((mb) => mb * 1024 * 1024);
+  for (const rss of series) { m.noteMemory(rss, clock()); clock.advance(1000); }
+  const v = m.verdict();
+  check('中间掉过一次 -> 不算连续递增', !v.reasons.some((r) => r.kind === 'memory-leak'), v.reasons.map((r) => r.kind).join(','));
+}
+{
+  // ④ 配置生效：窗口 3 / 阈值 50%
+  const clock = fakeClock();
+  const strict = createMonitor({ memoryLeakWindow: 3, memoryLeakGrowth: 0.5 }, clock);
+  let rss = 100 * 1024 * 1024;
+  for (let i = 0; i < 4; i++) { strict.noteMemory(rss, clock()); rss = Math.round(rss * 1.2); clock.advance(1000); }
+  check('窗口 3 / 阈值 50%：+72.8% -> 命中', strict.verdict().reasons.some((r) => r.kind === 'memory-leak'));
+  const clock2 = fakeClock();
+  const m2 = createMonitor({ memoryLeakWindow: 3, memoryLeakGrowth: 0.9 }, clock2);
+  let rss2 = 100 * 1024 * 1024;
+  for (let i = 0; i < 4; i++) { m2.noteMemory(rss2, clock2()); rss2 = Math.round(rss2 * 1.2); clock2.advance(1000); }
+  check('同一串数据把阈值抬到 90% -> 不命中（阈值可配）', !m2.verdict().reasons.some((r) => r.kind === 'memory-leak'));
+}
+{
+  // ⑤ 脏输入不该炸，也不该误报
+  const clock = fakeClock();
+  const m = createMonitor({ memoryLeakWindow: 5, memoryLeakGrowth: 0.1 }, clock);
+  m.noteMemory(undefined, clock());
+  m.noteMemory(-1, clock());
+  m.noteMemory('nonsense', clock());
+  m.noteMemory(NaN, clock());
+  check('非法 RSS 被忽略，不报内存泄漏也不抛异常', !m.verdict().reasons.some((r) => r.kind === 'memory-leak'));
+}
+
 section('判定：审批等待被人看见');
 {
   const clock = fakeClock();
@@ -515,6 +575,11 @@ function makeFakeCtx() {
   const resEmpty = makeRes();
   await killRoute.handler(makeReq('/api/jingcha/kill', '127.0.0.1', 'POST', JSON.stringify({ callId: 'undefined' })), resEmpty);
   check('callId=undefined 直接拒绝（L1）', JSON.parse(resEmpty.body).reason === 'empty-callId', resEmpty.body);
+
+  // 心跳里会采一次 RSS 交给 core（内存泄漏预警的数据来源）
+  live.heartbeatOnce(Date.now());
+  check('宿主心跳确实把 RSS 采给了 core', live.monitor.peek().memorySamples.length >= 1, String(live.monitor.peek().memorySamples.length));
+  check('快照里能看到内存采样数（memoryLeak.samples）', live.monitor.snapshot().runtime.memoryLeak.samples >= 1);
 
   // 卸载：跑 effect disposer（停心跳、写最后快照、清实例）
   await fake.runEffects();
