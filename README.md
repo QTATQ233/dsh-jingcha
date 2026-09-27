@@ -1,303 +1,137 @@
-# 鲸察 (dsh-jingcha) · DSH 运行时监察插件
+# 鲸察 · dsh-jingcha
 
-> **名字**：鲸察（jīngchá）——鲸，呼应工作区里的小鲸鱼；察，就是监察。
-> 包名 `@local/dsh-jingcha`，目录名可自取，下文示例统一用 `C:\dsh-jingcha`。
+[![CI](https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml/badge.svg)](https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![topic: dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue.svg)](https://github.com/topics/dsh-plugin)
+[![model tokens](https://img.shields.io/badge/model%20tokens-0-brightgreen.svg)](#零-token)
 
-给 DSH 装一块仪表盘：**工具调用 / 模型输出 / 事件循环 / 错误循环** 四路都看得见。
-它只回答一句话就能说清的问题——**现在是在正常干活，还是卡住了，还是出了 bug？**
+> **DSH 运行时监察插件**：实时判断工具调用是**正常、卡住、还是出了 bug**；发现异常能**按调用强制停止**（含嵌套子调用）；
+> 右下角一枚**红绿灯挂件**随时看状态 —— 默认 **0 token**，不占模型上下文。
 
-| 判定 | 含义 | 典型触发 |
-|---|---|---|
-| ✅ `ok` | 正常（空闲） | 没有在途调用、没有 agent 在跑、没有异常 |
-| 🟢 `busy` | 运行中（有进展） | 有调用在跑 / agent 在跑，且还在产出 |
-| 🟡 `degraded` | 偏慢 / 降级 | 单次调用 > 30s、事件循环延迟 > 500ms、长时间没有新输出、等审批太久 |
-| 🟠 `erroring` | 出现错误（疑似 bug） | 同一工具 2 分钟内失败 ≥3 次（错误风暴）、连续失败、模型层反复报错 |
-| 🔴 `stalled` | 疑似卡住 | 在途调用 > 2min（挂起）/> 5min（卡住）、有 agent 在跑但 90s 没有任何输出、事件循环被占住 |
-
----
-
-## 一、它观察什么（全部只读，绝不改写被观察的东西）
-
-| 宿主事件 / 数据源 | 拿它干什么 |
+|  |  |
 |---|---|
-| `tools/pre-execute` | 调用入口：开始计时；记录裁决（allow / ask / deny / cancel）与**审批等待时长** |
-| `tools/execute` | 真正的派发窗口：在途时长、工具体抛没抛异常；读出工具声明的 `timeoutMs` 上限 |
-| `tools/result` | 最终结果：错误码 / 错误信息 / **结果字节数与内容块数**（输出面靠它）；也补全被策略直接拒绝、没进派发的调用 |
-| `agent/status` | 谁在跑、谁闲着 |
-| `agent/assistant-stream` | 模型流式帧（只数 `chunk`）——模型还在吐字的最直接证据 |
-| `session/event` | 会话还在追事件——还有输出的第二路证据 |
-| `agent/error` / `agent/request-error` | 步骤级失败与请求级重试（两者分级不同：重试只记 info，不判 bug） |
-| `subagent/start` / `subagent/end` | 子智能体起止 |
-| `ctx.jobs`（有才用） | 后台 job 总数 / 运行中数量 |
-| 1 秒心跳 | 事件循环延迟、RSS/堆内存、活跃资源数、判定推进 |
+| ![浅色](docs/assets/panel-light.png) | ![深色](docs/assets/panel-dark.png) |
+| 浅色（胶囊 + 面板） | 深色（胶囊 / 面板 / 色板同一套配色） |
 
-拿到的事实会折算成这几种理由（reason kind），报告里逐条列出：
+## 它解决什么问题
 
-`tool-slow` `tool-hang` `tool-stall` `error-storm` `failure-loop` `agent-error` `agent-error-loop`
-`no-progress` `progress-slow` `event-loop-lag` `event-loop-blocked` `host-suspend` `approval-wait`
-`tool-denied` `empty-result` `plugin-error`
-
-> 关于 `host-suspend`：如果事件循环一口气停了 ≥30s（笔记本休眠、宿主被挂起、一个超长同步任务），
-> 只记一条 warn 并说清原因，**不会**据此把它算成卡住。
-
----
-
-## 二、产出：快照 / 事件流 / 控制台 / 本机接口（+ 可选的模型工具）
-
-### 1. `status.json` —— 实时快照（原子替换，默认每 5s 或状态翻转时写）
-
-字段：`verdict`（判定 + 理由）、`runtime`（事件循环延迟 / 内存）、`work`（在途调用、agent、计数器、错误率）、
-`tools`（各工具调用次数 / 失败 / 平均 / 最长 / 结果字节）、`recentCalls`、`findings`、`thresholds`。
-
-### 2. `events.jsonl` —— 追加式事件流（超 8MB 自动轮转为 `.1`）
-
-每行一个 JSON：`tool.call`（每次调用结算一行）、`tool.hang` / `tool.stall`、`finding`、
-`state.change`（判定翻转）、`agent.error`、`loop.suspend`、`plugin.error`。
-
-### 3. `jingcha_status` 工具 —— 让会话里就能体检
-
-模型（或用户说一句「看看监察」）调用它，得到中文 Markdown 报告：判定、判定理由、正在跑什么、
-工具使用统计表、最近调用、最近告警、输出面统计。参数：`windowMinutes`（窗口分钟数）、`includeSnapshot`（是否附原始快照）。
-
-### 4. 控制台一行
-
-只在判定**翻转**时往宿主那个黑窗口打一行（形如 `[鲸察] 判定 -> 疑似卡住（stalled）：…`）；
-长调用期间每 `consoleProgressMs` 还会打一行「仍在跑」。
-
-## 二·五、零 token 模式 + 紧急停止（默认就是这样）
-
-**0 token**：默认 `toolEnabled: false` —— 插件不注册任何模型可见的工具，因此**每个请求 0 常驻开销**；
-它只写 `status.json` / `events.jsonl` / 控制台，以及给右下角挂件用的本机 HTTP 接口。
-想让模型也能直接问「鲸察看下」，把 patch 里的 `toolEnabled` 改成 `true`（代价约 176 tokens/请求）。
-
-**紧急停止 / 强制停止**（这才是"有问题时有用"的部分）：
-
-| 动作 | 怎么做 | 效果 |
+| 痛点 | 以前的处境 | 有了鲸察 |
 |---|---|---|
-| 停单个卡住的调用 | `POST /api/jingcha/kill` body `{"callId":"call_x"}` | 掐断该调用的中止信号；`pwsh` 这类子进程工具**真的被杀掉** |
-| 停掉所有超阈值的调用 | `POST /api/jingcha/kill` body `{"scope":"stalled"}` | 按 `stuckCallMs`（默认 5 分钟）批量停 |
-| 全部停止在途调用 | `POST /api/jingcha/kill` body `{"scope":"all"}` | 一个不留 |
-| 停止所有正在跑的轮次 | `POST /api/jingcha/stop` | 等价于界面上那个停止按钮（`agent.cancel({kind:"user"})`） |
-| 自动停止 | patch 里 `autoKillAfterMs: 300000` | 在途超过 5 分钟自动掐断（默认 0 = 关闭） |
-| 看状态（挂件/脚本用） | `GET /api/jingcha/status` | 判定 + 在途调用 + 计数器 + 最近告警的紧凑 JSON |
-| 读/写挂件设置 | `GET` / `POST /api/jingcha/settings` | 位置、大小、不透明度、主色、主题、阈值、提示开关；宿主夹紧取值并落盘 `widget-settings.json` |
+| 工具调用跑着没动静 | 界面只说「运行中」，分不清是慢、死了，还是在等你点审批 | 快照 + 事件流给出**判定与理由**（慢 / 挂起 / 卡住 / 没有输出 / 等待审批 / 错误风暴） |
+| 想停掉某个跑飞的调用 | 只能停整个轮次，别的活一起陪葬 | **按 callId 强停**单个调用，或「停掉卡住的」「停止所有轮次」（带二次确认） |
+| 出问题想复盘 | 没有现场 | 每次调用一条事件（工具、参数摘要、耗时、结果、错误分类）→ events.jsonl |
+| 不想被插件吃 token | 工具一注册就占上下文 | 默认 **toolEnabled: false**，模型完全看不到它，**0 token** |
 
-接口只接受本机回环请求（非回环 403）。每次停止都会写一条 `kill.done` 事件 + 一条 `kill` 告警，
-所以"谁在什么时候停了什么"在 `events.jsonl` 里有据可查。
+## 功能一览
 
-> 诚实说明：掐断是**协作式**的——响应取消的工具会立刻停（子进程会被杀），
-> 但同进程里不理会 `exec.signal` 的死循环停不下来（宿主没有硬杀同进程代码的能力）。
+- **监察**：在 tools/pre-execute、tools/execute、tools/result 三层只读观察，记录耗时、结果字节、错误分类；
+- **判定**：慢 / 挂起 / 卡住 / 静默（有 agent 在跑但没有任何输出）/ 等待审批 / 错误风暴 / 插件自身报错；
+- **强停**：融合一个属于鲸察的 AbortController（上游取消语义不变），**在 pre-execute 就登记**，
+  所以嵌套子调用（父 id 加 :ptc: 序号）也能停；停不掉时返回人话原因（例：只有父调用在跑时不会误杀）；
+- **挂件**：可拖动（位置自动记住）、按调用时长分级变色（黄/红灯秒可调）、异常右侧弹提示、
+  悬停省略号看全文（**不闪烁**）、五宫格复位、深浅色统一、隐藏后原位置可找回、Ctrl+Shift+J 快捷键；
+- **接口**：status / kill / stop / settings 四个 HTTP 端点，只监听回环 + Host 白名单 + 拒跨站来源 + 变更类只收 POST JSON（见「安全边界」）；
+- **落盘**：status.json（原子替换的快照）+ events.jsonl（追加式事件流，8MB 自动轮转）。
 
----
-### 5. 右下角红绿灯挂件（客户端面 `lib/client.js`，v6）
-
-**胶囊**：状态点 + 判定文字（有在途调用时显示「pwsh 1m33s」）+ tooltip；接口不可用时灰显「鲸察未运行」。
-**灯色按调用时长分级**（客户端即时算）：`≤黄灯秒 → 绿`、`≤红灯秒 → 黄`、`>红灯秒 → 红（呼吸）`；空闲时看判定状态。
-灯色**永远是状态色**，不会被主色覆盖——主色只负责"它长什么样"。
-
-**位置＝上次的位置**：按住胶囊拖动（4px 内算点击），松手**立刻**写盘，页面关闭前再补一次；本地 `savedAt` 与宿主设置合并时取更新的那份。
-复位给全五宫格：**左上 / 右上 / 左下 / 右下 / 居中**（设置里一排小按钮）。
-
-**面板**：默认紧凑（宽 320 / 高 340），四个分段（判定 / 在途调用 / 最近告警 / 设置）点标题可折叠且本地记住；
-长文本一律省略号 + `title`；面板宽度与最大高度都可在设置里调。
-
-**设置界面（v4 重做）**：
-
-- **滑块顺滑**：拖动中只更新样式与数值、**不重建 DOM**（v3 每次 input 都重建设置区，range 被替换 → 顿挫难拖），松手才落盘；
-- 每个滑块**后面跟一个数字框**，可直接键入精确值（如 `1.35×`、`87%`、`418px`）；
-- **主题三段按钮**：跟随界面 / 深 / 浅；「跟随界面」读的是 **DSH 客户端主题**（`body[data-ds-dark-theme]`、`html[data-ds-theme-source]`），
-  再退回 `prefers-color-scheme`，并订阅客户端 `theme/change` 事件 + 轮询兜底，界面换主题它立刻跟上；
-- **主色＝自绘色板浮层**：12 个预设色 + 十六进制输入 + 「跟随主题」；**只有点击浮层外面或 Esc 才关闭**（不会点一下就消失）；
-  主色真正生效在：胶囊描边与内描边、面板标题条、按钮悬停、滑块轨道与选中态；
-- 提示开关与停留时长、是否显示文字、面板宽/高、五宫格复位、隐藏胶囊。
-
-**v5 打磨（手感 / 配色 / 恢复默认）**：
-
-- **滑块真的顺了**：拖动中按帧（rAF）节流、只改视觉变量，**并且轮询不再重建设置区**——v4 每 1–2 秒就重建设置区，
-  等于把用户正按着的滑块换成新元素，这就是"顿挫、拖一半跑掉"的根因；同时去掉胶囊 `transform` 过渡（尺寸拖动的橡皮筋感）并加 `will-change`。
-- **恢复默认设置**按钮：位置 / 主题 / 主色 / 阈值 / 外观一键回厂（并立刻落盘）。
-- **主色色板挂在面板上**（不在设置区里）→ 设置区怎么重画都不会把色板拆掉；**只有点浮层外面或 Esc 才关闭**。
-- **胶囊与面板共用同一套配色**：只有一个**基底色**，由它派生 `--j-surface`（胶囊）/ `--j-surface-solid`（面板）/ 边框 / 控件底色；
-  文字色（`--j-fg` / `--j-sub`）按基底色亮度自动选（深底浅字、浅底深字）——所以深色下不会再"胶囊深、面板白"或字看不清；
-- **深色不再"白深色"**：所有控件显式使用 `--j-field` 底色、面板继承 `color-scheme`；
-  「跟随界面」还会**采样 DSH 页面的真实底色**（`getComputedStyle(body).backgroundColor`）来决定深浅、并让挂件底色与界面同色，自定义主题也贴得住。
-**悬停看全文（不闪烁）**：所有被省略号截断的文本（在途调用参数预览、判定理由、告警内容）**鼠标停 500ms（可调）弹出完整内容的小框**；
-轮询每 1–2 秒重画面板时，它**按文本认领同一个提示框**（不会闪掉、也不会重新计时），换到另一条省略文本是即时切换；
-鼠标移开后再留 **1.5 秒（可调）** 才消失；只有真的被截断才弹；设置里可关（关掉则退回原生 title）。
-**隐藏能找回**：隐藏后在**原位置**留一个半透明「鲸察」小胶囊（固定定位、带状态灯），点一下就地恢复；另有 `Ctrl+Shift+J` 快捷键兜底。
-**「🛑 停止所有轮次」带二次确认。** 每 2 秒拉一次 `GET /api/jingcha/status`（面板打开 1 秒 / 页面隐藏 5 秒），**不消耗任何模型 token**。
-
-客户端改动**不需要重启 dsh**：客户端加载器按文件 mtime 生成版本号，浏览器刷新页面即可拿到新 bundle。
-自检：`node test/verify-client.mjs`（DOM 桩下 **90 项**：形态/懒加载、阈值分级、拖动与立即持久化、五宫格复位、异常 toast、悬停看全文、
-滑块按帧节流且不重建 + 数字直填、轮询不重建设置区/不关色板、主题三段与跟随 DSH 界面、主色色板（选完不关 / 点外面才关 / 不覆盖灯色）、
-恢复默认设置、隐藏与原位置找回、降级、清理）。
-
----
-
-## 三、安装
-
-前提：插件目录 `C:\dsh-jingcha`（本仓库），profile 默认 `web`。
-
-### 方式 A：免 pnpm（推荐，本机已验证）
+## 30 秒上手
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\dsh-jingcha\tools\install.ps1
+# 官方通道（装完需要重启 dsh）
+dsh plugin --profile web add github:you233/dsh-jingcha
+
+# 自检（两套零依赖，不需要 dsh 在跑）
+node test/verify.mjs          # 107 项
+node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 ```
 
-它做三件事（先备份到 `dsh-jingcha\.backup\`，可整体回滚）：
+不想用插件通道？仓库里也有 tools/install.ps1（建 junction + 改 profile manifest，自动备份，可整体回滚）。
+细节见 [docs/SHARING.md](docs/SHARING.md)。
 
-1. 备份 profile 的 `package.json`；
-2. 往 profile manifest 里加依赖 `"@local/dsh-jingcha": "link:C:/dsh-jingcha"` 与 `dsh.profile.bundles` 条目；
-3. 在 `%DSH_HOME%\profiles\web\node_modules\@local\` 下建 **junction** 指向插件目录。
+## 判定规则
 
-为什么 junction 就够：profile 的模块解析是「先安装目录、再 profile 目录」，
-并且会把 `node_modules` 下指向外部目录的链接当作额外解析根（`linkedProfileRoots`）。
-这与官方 `dsh plugin add link:<目录>` 的效果一致，只是不经过 pnpm。
+| 判定 | 触发条件（默认阈值） | 建议动作 |
+|---|---|---|
+| 慢 | 单次调用超过 30s（slowCallMs） | 看看是不是正常的长任务 |
+| 挂起 | 在途超过 2min（hangCallMs） | 关注，可能要停 |
+| **卡住** | 在途超过 5min（stuckCallMs）**且**期间没有产出（progressEveryMs） | 点「停掉卡住的」 |
+| 没有输出 | 有 agent 在跑但 90s 内没有任何流式帧 / 会话事件 / 工具结果（silenceMs） | 检查模型侧 |
+| 等待审批 | pre-execute 卡在审批超过 20s（approvalWarnMs） | 去界面点确认，别误判成卡死 |
+| 错误风暴 | 连续 3 次失败（errorStormCount） | 停手，先看错误分类 |
+| 插件自身报错 | 鲸察自己抛异常 | 报告 bug（它保证不反过来搞坏工具调用） |
 
-### 方式 B：官方 pnpm 通道
-
-```powershell
-cd C:\dsh-jingcha
-dsh plugin --profile web add link:C:/dsh-jingcha
-```
-
-（在沙箱内跑会撞 pnpm 全局操作锁；要么放宽授权，要么用方式 A。）
-
-### 方式 C：不改 profile，临时试跑
-
-```powershell
-dsh --profile web --patch C:\dsh-jingcha\cordis.patch.yml
-```
-
-补丁里写的插件名是 `@local/dsh-jingcha`，仍需要 profile 能解析到它（即方式 A/B 的 junction 或 link），
-所以它只适合「已经装过、想换个 patch 层」的场景。
-
-### 装完必须重启
-
-bundle 列表在**启动时**装配；`patchReload: live` 只热更 patch 文件本身。
-关掉当前 dsh 窗口，重新运行 `启动dsh.bat`（或 `dsh web`）。
-
-### 重启后的验证清单
-
-```powershell
-# 1) profile 层面：bundle 是否被装配（无头、不起服务）
-dsh --profile web --dump-config | Select-String dsh-jingcha
-
-# 2) 插件是否真在跑：数据文件是否在刷新
-Get-Item $env:DSH_HOME\data\dsh-jingcha\status.json | Select-Object LastWriteTime,Length
-
-# 3) 判定读一眼
-Get-Content $env:DSH_HOME\data\dsh-jingcha\status.json -Raw | ConvertFrom-Json | Select-Object -ExpandProperty verdict
-```
-
-4) 在会话里让模型调用 `jingcha_status`（或直接问「现在正常吗」）。
-
----
-
-## 四、卸载
-
-```powershell
-powershell -ExecutionPolicy Bypass -File C:\dsh-jingcha\tools\uninstall.ps1 -Restore
-```
-
-`-Restore` 用**同一 profile** 的最新备份覆盖回 `package.json`（备份名带 profile 标签，演练/别的 profile 的备份不会被误用）；不加就逐项移除依赖与 bundle 条目。
-数据目录 `$env:DSH_HOME\data\dsh-jingcha\` 不会被删——想留证据就留着。
-
----
-
-## 五、配置（`cordis.patch.yml` 里的 `config:`）
+## 配置（cordis.patch.yml）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `dataDir` | `%DSH_HOME%\data\dsh-jingcha` | 数据目录；本仓库的 patch 里显式指到 `$env:DSH_HOME\data\dsh-jingcha` |
-| `console` | `true` | 判定翻转时往控制台打一行 |
-| `slowCallMs` | 30000 | 单次调用超过它记「慢」 |
-| `hangCallMs` | 120000 | 在途超过它记「挂起」 |
-| `stuckCallMs` | 300000 | 在途超过它升级为「卡住」 |
-| `silenceMs` | 90000 | 有 agent 在跑但这么久没有任何输出 → 「没有输出」 |
-| `lagWarnMs` / `lagStuckMs` | 500 / 5000 | 事件循环延迟告警 / 判卡死 |
-| `approvalWarnMs` | 20000 | 等用户审批超过它 → 提示「像卡住，其实在等人点确认」 |
-| `errorStormCount` / `errorStormWindowMs` | 3 / 120000 | 同一工具窗口内失败这么多次 → 错误风暴 |
-| `emptyResultBytes` | 0 | >0 时，成功但结果小于它的调用记「空结果」（默认关闭） |
-| `heartbeatMs` / `statusEveryMs` | 1000 / 5000 | 心跳与快照节奏 |
-| `progressEveryMs` / `consoleProgressMs` | 30000 / 60000 | 长调用期间的进度心跳间隔、控制台「仍在跑」间隔 |
-| `maxLogBytes` | 8000000 | 日志轮转阈值 |
-| `toolEnabled` | `false` | 是否注册 `jingcha_status` 工具。**默认 false = 0 token**；改 true 才能让模型直接问（约 +176 tokens/请求） |
-| `autoKillAfterMs` | 0 | >0 时自动掐断超过该时长的在途调用（自动强制停止） |
-| `enabled` | `true` | `false` 时完全不挂载（一行日志说明后退出） |
+| dataDir | %DSH_HOME%\data\dsh-jingcha | 数据目录（status.json / events.jsonl / widget-settings.json） |
+| displayName | 鲸察 | 控制台前缀与报告标题 |
+| toolEnabled | false | 是否注册模型可见的查询工具（打开后每个请求多约 176 token） |
+| slowCallMs / hangCallMs / stuckCallMs | 30s / 2min / 5min | 慢 / 挂起 / 卡住 |
+| silenceMs | 90s | 「没有输出」判定 |
+| approvalWarnMs | 20s | 等待审批提示 |
+| autoKillAfterMs | 0（关） | 自动强停阈值；**同时要求没有产出**，避免误杀慢任务 |
+| previewArgs / redactPreviews | true / true | 是否记录参数摘要 / 是否对 token、password 一类片段打码 |
+| apiToken | 空 | 设了就要求 x-jingcha-token 头（多用户机器建议设） |
 
----
+每一项都在 [cordis.patch.yml](cordis.patch.yml) 里带中文注释。
 
-## 六、自检（不依赖宿主，随时可跑）
+## 安全边界
+
+- 四个接口**统一过栅栏**：只认回环地址、Host 必须在 127.0.0.1 / localhost / ::1 白名单（挡 DNS rebinding）、
+  拒绝带 Origin 或 Sec-Fetch-Site: cross-site 的请求、**变更类接口只接受 POST + application/json**
+  （挡 img 标签一发即杀与跨站表单）、可选 apiToken；
+- 插件**不联网、无第三方依赖、不做动态执行**；客户端全程 textContent（无 XSS 面）；
+- events.jsonl / status.json 含**工具参数摘要**（默认截断 120 字符并对敏感片段打码）；分享前先看一眼，或用 previewArgs: false 关掉；
+- 残余风险：回环等于「本机全体」，同机其它账号/进程仍可访问 —— 多用户环境请设 apiToken。
+
+## 它是怎么接进去的
+
+```
+lib/core.js    纯逻辑：判定、统计、状态机（零依赖，可单测）
+lib/index.js   宿主接线：工具流水线观察、融合强停信号、HTTP 路由、心跳
+lib/sink.js    落盘：status.json 原子写 + events.jsonl 追加与轮转
+lib/client.js  浏览器挂件（单文件 bundle，零 require）
+```
+
+- 强停原理：在 pre-execute 给一次调用装上属于鲸察的 AbortController 并替换 exec.signal，
+  DSH 派发时会把「上游 callerSignal」与「我们的信号」融合，因此**上游取消照旧、我们也能主动掐断**；
+  调用结束（execute 的 finally 或 result 阶段）再还原并摘掉登记；
+- 挂件的红绿灯按**调用时长**着色（客户端即时算，不等宿主），判定状态另有一路；
+- 细节：[lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md)（挂件规格）、[docs/EXTENDING.md](docs/EXTENDING.md)（二次开发最小改动清单）。
+
+## 自检
 
 ```powershell
-cd C:\dsh-jingcha
-node test/verify.mjs            # 107 项：判定逻辑 + 假 ctx 接线 + 落盘 + 跨站栅栏 + 强停（含嵌套调用）+ 契约一致性
-node test/verify-cordis.mjs     # 13 项：真 cordis 的 inject 握手 / waterfall 透传 / fiber 卸载
-node test/verify-client.mjs     # 81 项：挂件（DOM 桩，无需浏览器）
-node tools/pack.mjs             # 打包成 dist/dsh-jingcha-<版本>.zip（分享用）
+node test/verify.mjs          # 107 项：判定逻辑 / 假 ctx 接线 / 路由栅栏 / 强停（含嵌套调用）/ 契约一致性
+node test/verify-cordis.mjs   #  13 项：真 cordis 的 inject 握手 / waterfall 透传 / fiber 卸载（需 DSH_CORDIS）
+node test/verify-client.mjs   #  90 项：挂件（DOM 桩，无需浏览器）
 ```
 
-第二个脚本解析不到 `@deepseek-ai/cordis` 时会自动跳过（退出码 0）。想在任意位置跑，给它路径：
+CI 每次 push 会跑其中零依赖的部分，见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
-```powershell
-$env:DSH_CORDIS='C:\...\node_modules\@deepseek-ai\cordis\lib\index.js'; node test/verify-cordis.mjs
-```
+<a name="零-token"></a>
+## 零 token
 
-自检产物落在 `.selftest-out\`（status.json / events.jsonl），可以直接打开看监察长什么样。
+默认不注册任何模型可见的工具（status.json 里 extras.tool 为 null），事件流与挂件都不进模型上下文 —— 不花一分钱 token。
+如果你希望会话里能直接问「现在卡在哪」，再把 toolEnabled 打开（代价：每请求多约 176 token 的工具说明 + 每次查询约 0.5k token 的报告）。
 
----
+## 文档
 
-## 六·五、安全边界（2026-09-28 加固）
+| 文件 | 内容 |
+|---|---|
+| [docs/SHARING.md](docs/SHARING.md) | 装给别人 / 卸载 / 分享前的安全检查 |
+| [docs/EXTENDING.md](docs/EXTENDING.md) | 加判定规则 / 路由 / 面板分区 / 设置项的最小改动清单 |
+| [docs/PUBLISHING.md](docs/PUBLISHING.md) | 维护者发布流程（复制脱敏 + 隐私自检 + 推送） |
+| [lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md) | 挂件规格与验收清单 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本记录 |
 
-四个挂件接口（status/kill/stop/settings）统一过 `guard()`：
+## 常见问题
 
-- **只认回环地址**，并且 **Host 必须在 `127.0.0.1` / `localhost` / `::1` 白名单里** —— 挡 DNS rebinding；
-- 拒绝带 `Origin` 或 `Sec-Fetch-Site: cross-site|same-site` 的请求 —— 挡"随手打开的网页"；
-- **变更类接口只接受 `POST` + `content-type: application/json`** —— 挡 `<img>` 一发即杀、跨站表单；
-- 可选 `apiToken`（或环境变量 `JINGCHA_API_TOKEN`）：配了就要求 `x-jingcha-token` 头；
-- `events.jsonl` / `status.json` 里的参数摘要默认**对 token/password 一类片段打码**，可用 `previewArgs: false` 整个关掉；
-- `readBody` 上限 8KB 按剩余额度切片，`reason` 限长 200 且过滤控制字符。
+- **停不下来？** 忽略 exec.signal 的同进程死循环无法硬杀（插件只能中止信号），但 pwsh 之类的子进程会被真的杀掉；
+  嵌套调用若只有父调用在跑，插件会明确拒绝，而不是误杀父调用。
+- **会不会反过来搞坏工具调用？** 所有监控路径都包在 safe() 里，异常自己吞掉并计入 pluginErrors，不影响工具结果。
+- **数据长多大？** events.jsonl 超 8MB 自动轮转保留一份（约 16MB 上限），status.json 始终只有一份快照。
 
-已知残余风险：回环 = 本机全体（同机其它账号/进程仍可访问，除非配 `apiToken`）；`events.jsonl` 仍含工具名与路径，分享前先看一眼。
+## 许可
 
-## 六·六、分享给别人
-
-```powershell
-node C:\dsh-jingcha\tools\pack.mjs      # 产出 dist\dsh-jingcha-<版本>.zip
-```
-
-对方解压 → 改 `cordis.patch.yml` 的 `dataDir` → 跑 `tools\install.ps1` → **重启 DSH**。细节与安全须知见 `docs/SHARING.md`，
-二次开发（加判定规则 / 路由 / 面板分区 / 设置项 / 换语言换配色）见 `docs/EXTENDING.md`。
-## 七、已知限制（写清楚，免得误会）
-
-1. **只观察，不干预**。它不会杀进程、不会超时中断、不会改写任何工具结果——那是 `dsh-tool-call-timeout-policy` 的活。
-2. **事件循环被占死时它自己也转不动**。那种情况下「最后一次快照」就是证据：恢复后会补一条 `host-suspend` 或 `event-loop-blocked`。
-3. **同一 callId 的时间线以 `pre-execute` 为起点**，因此「卡住」包含等审批的时间（这恰恰是用户感知的卡住）。
-   想排除审批等待，看 `approval-wait` 告警即可。
-4. **PTC 嵌套子调用**（`run_code` 里派发的工具）也会被记录，靠 `nested: true` 区分。
-5. **日志不会无限长**：单文件超过 `maxLogBytes` 轮转一份 `.1`；内存队列超过 20000 条丢最旧的（计数可见）。
-6. **`ctx.on('dispose')` 在这个 cordis 版本里不会触发**，所以生命周期用 `ctx.effect()` 绑定（本仓库实测）。
-
----
-
-## 八、文件结构
-
-```
-dsh-jingcha/
-├─ package.json          # DSH bundle 声明（dsh.bundle.patch）
-├─ cordis.patch.yml      # 挂载声明 + 全部阈值配置（中文注释）
-├─ lib/
-│  ├─ core.js            # 零依赖纯逻辑：记账 / 判定 / 快照 / 报告（可单测）
-│  ├─ index.js           # 宿主接线：事件监听 / 心跳 / 查询工具 / 生命周期
-│  └─ sink.js            # 落盘：events.jsonl 追加 + status.json 原子替换 + 轮转
-├─ test/
-│  ├─ verify.mjs         # 离线自检（假 ctx + 真 JSON Schema 校验器）
-│  └─ verify-cordis.mjs  # 真 cordis 集成测试
-└─ tools/
-   ├─ install.ps1        # 安装（junction + profile manifest，自动备份）
-   └─ uninstall.ps1      # 卸载（可 -Restore 回滚）
-```
-
-> `tools/*.ps1` 故意写成纯 ASCII：Windows PowerShell 5.1 会把无 BOM 的 UTF-8 脚本按 ANSI 读，
-> 中文会把引号吃坏、脚本直接解析失败。中文说明都放在这份 README 里。
+MIT（见 [LICENSE](LICENSE)）。
