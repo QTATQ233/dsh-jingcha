@@ -12,17 +12,60 @@ const version = String(pkg.version || "0.0.0");
 const slug = String(pkg.name).split("/").pop().replace(/[^a-z0-9._-]/gi, "-").replace(/^[^a-z0-9]+/i, "") || "dsh-plugin";
 const stage = path.join(root, "dist", "stage", slug + "-" + version);
 const zip = path.join(root, "dist", slug + "-" + version + ".zip");
-const SKIP = new Set([".backup", ".selftest-out", "node_modules", "dist", ".git"]);
+const SKIP = new Set([".backup", ".selftest-out", "node_modules", "dist", ".git", ".privacy-needles.json"]);
+const ALLOWED_DOTFILES = new Set([".gitattributes", ".gitignore"]);
+const FORBIDDEN_NAMES = /(privacy-needles|gh-token|id_ed25519|ssh-config|widget-settings\.json|^status\.json$|^events\.jsonl$)/;
 
-rmSync(path.join(root, "dist"), { recursive: true, force: true });
+// 只清暂存目录与旧 zip；**不要**动 dist/publish（那是 git 仓库）
+rmSync(path.join(root, "dist", "stage"), { recursive: true, force: true });
+for (const entry of existsSync(path.join(root, "dist")) ? readdirSync(path.join(root, "dist")) : []) {
+  if (entry.endsWith(".zip")) rmSync(path.join(root, "dist", entry), { force: true });
+}
 mkdirSync(stage, { recursive: true });
-for (const entry of readdirSync(root)) {
+// 先确保发布副本存在且是最新的（它才是脱敏后的内容，和仓库一致）
+if (!existsSync(path.join(root, "dist", "publish", "package.json"))) {
+  console.log("dist/publish 不存在，先跑 prepare-publish…");
+  spawnSync(process.execPath, [path.join(root, "tools", "prepare-publish.mjs")], { stdio: "ignore" });
+}
+const SOURCE = path.join(root, "dist", "publish");
+for (const entry of readdirSync(SOURCE)) {
   if (SKIP.has(entry) || entry.startsWith(".tmp")) continue;
-  const from = path.join(root, entry);
+  if (entry.startsWith(".") && !ALLOWED_DOTFILES.has(entry)) continue;
+  const from = path.join(SOURCE, entry);
   if (statSync(from).isDirectory() && !["lib", "tools", "test", "docs"].includes(entry)) continue;
   cpSync(from, path.join(stage, entry), { recursive: true });
 }
-console.log("staged ->", stage);
+// 打包前自检：暂存目录里出现敏感文件名就直接失败（历史上漏过 .privacy-needles.json）
+const leaked = [];
+(function walk(dir) {
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) { walk(full); continue; }
+    if (FORBIDDEN_NAMES.test(entry)) leaked.push(path.relative(stage, full));
+  }
+})(stage);
+if (leaked.length > 0) {
+  console.error("打包自检失败，暂存目录里有敏感文件：" + leaked.join(", "));
+  process.exit(1);
+}
+// 文本层自检：本机路径 / 个人标识不许出现在分发包里
+// 注意：必须区分大小写 —— 中性化的路径是 C:\\dsh-jingcha / C:/dsh-jingcha，不区分大小写会误报
+const LOCAL_PATTERNS = [/C:\\\\DSH/, /C:\/DSH/, /C:\\dsh-jingcha/, /0000000000/, /QQ\.COM/];
+const textual = [];
+(function walkText(dir) {
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) { walkText(full); continue; }
+    if (!/\.(md|mjs|js|yml|yaml|json|ps1|txt)$/i.test(entry)) continue;
+    const body = readFileSync(full, "utf8");
+    for (const pattern of LOCAL_PATTERNS) if (pattern.test(body)) { textual.push(path.relative(stage, full) + " 命中 " + pattern); break; }
+  }
+})(stage);
+if (textual.length > 0) {
+  console.error("打包自检失败，文本里还有本机路径/个人信息：\n" + textual.join("\n"));
+  process.exit(1);
+}
+console.log("staged ->", stage, "(敏感文件 " + leaked.length + " 个，文本命中 " + textual.length + " 处)");
 const readme = [
   "# 鲸察（" + pkg.name + " " + version + "）安装说明",
   "",
