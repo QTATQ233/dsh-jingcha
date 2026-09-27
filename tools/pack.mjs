@@ -3,6 +3,11 @@
  * 只带运行/自检/文档所需文件，排除备份、自检输出与 dist 自身。
  */
 import { mkdirSync, rmSync, cpSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+
+/** 隐私针文件的候选位置：仓库根目录（新）与上一级目录（旧位置，向后兼容）。 */
+function NEEDLES_CANDIDATES(base) {
+  return [path.join(base, '.privacy-needles.json'), path.join(base, '..', '.privacy-needles.json')].find((candidate) => existsSync(candidate));
+}
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
@@ -56,7 +61,7 @@ if (leaked.length > 0) {
 const LOCAL_PATTERNS = (function patterns() {
   const out = [];
   try {
-    const file = path.join(root, ".privacy-needles.json");
+    const file = [NEEDLES_CANDIDATES(root), path.join(root, "..", ".privacy-needles.json")].find((candidate) => existsSync(candidate));
     if (existsSync(file)) {
       for (const pair of JSON.parse(readFileSync(file, "utf8"))) {
         const from = Array.isArray(pair) ? String(pair[0]) : "";

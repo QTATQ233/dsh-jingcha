@@ -9,6 +9,11 @@
  * 每次要发布新版本，先改 package.json 的 version，再跑这个脚本，然后在 dist/publish 里 git 提交。
  */
 import { mkdirSync, rmSync, cpSync, readdirSync, statSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+
+/** 隐私针文件的候选位置：仓库根目录（新）与上一级目录（旧位置，向后兼容）。 */
+function NEEDLES_CANDIDATES(base) {
+  return [path.join(base, '.privacy-needles.json'), path.join(base, '..', '.privacy-needles.json')].find((candidate) => existsSync(candidate));
+}
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -33,7 +38,7 @@ const REPLACEMENTS = [
 /** 读本机隐私替换表：[[from, to], ...]；文件不存在就返回空数组。 */
 function personalNeedles() {
   try {
-    const file = path.join(root, '.privacy-needles.json');
+    const file = NEEDLES_CANDIDATES(root);
     if (!existsSync(file)) return [];
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
     return Array.isArray(parsed) ? parsed.filter((pair) => Array.isArray(pair) && pair.length === 2) : [];
