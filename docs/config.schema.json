@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/you233/dsh-jingcha/docs/config.schema.json",
+  "$id": "https://github.com/QTATQ233/dsh-jingcha/docs/config.schema.json",
   "title": "鲸察插件配置（cordis.patch.yml 里 config: 下的字段）",
   "description": "所有字段都有默认值；未知字段会被忽略（不会报错）。改完需要重启 dsh。",
   "type": "object",

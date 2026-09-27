@@ -7,7 +7,7 @@
 <p><strong>DSH 运行时监察插件：工具调用 / 事件循环 / 错误风暴实时体检 + 按调用强制停止 + 右下角红绿灯挂件</strong></p>
 
 <p>
-<a href="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml"><img src="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+<a href="https://github.com/QTATQ233/dsh-jingcha/actions/workflows/ci.yml"><img src="https://github.com/QTATQ233/dsh-jingcha/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-blue.svg" alt="topic: dsh-plugin" /></a>
 <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="0 dependencies" />
@@ -15,7 +15,7 @@
 <img src="https://img.shields.io/badge/model%20tokens-0-brightgreen.svg" alt="0 model tokens" />
 <img src="https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg" alt="node >= 18" />
 <img src="https://img.shields.io/badge/DSH-plugin-4f46e5.svg" alt="DSH plugin" />
-<a href="https://github.com/you233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/you233/dsh-jingcha?style=social" alt="stars" /></a>
+<a href="https://github.com/QTATQ233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/QTATQ233/dsh-jingcha?style=social" alt="stars" /></a>
 </p>
 
 <p>
@@ -87,7 +87,7 @@
 
 ```powershell
 # 官方通道（装完需要重启 dsh）
-dsh plugin --profile web add github:you233/dsh-jingcha
+dsh plugin --profile web add github:QTATQ233/dsh-jingcha
 
 # 自检（零依赖，不需要 dsh 在跑）
 node test/verify.mjs          # 121 项
@@ -274,18 +274,18 @@ MIT —— 见 [LICENSE](LICENSE)。参与前请先读 [CODE_OF_CONDUCT.md](CODE
 <a id="star-history"></a>
 ## ⭐ Star History
 
-<a href="https://star-history.com/#you233/dsh-jingcha&Date">
-<img src="https://api.star-history.com/svg?repos=you233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
+<a href="https://star-history.com/#QTATQ233/dsh-jingcha&Date">
+<img src="https://api.star-history.com/svg?repos=QTATQ233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
 </a>
 
 ## 📣 分享
 
-<a href="https://twitter.com/intent/tweet?text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6%EF%BC%8C%E5%8F%AF%E5%BC%BA%E5%88%B6%E5%81%9C%E6%8E%89%E5%8D%A1%E4%BD%8F%E7%9A%84%E5%B7%A5%E5%85%B7%E8%B0%83%E7%94%A8&url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha">
+<a href="https://twitter.com/intent/tweet?text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6%EF%BC%8C%E5%8F%AF%E5%BC%BA%E5%88%B6%E5%81%9C%E6%8E%89%E5%8D%A1%E4%BD%8F%E7%9A%84%E5%B7%A5%E5%85%B7%E8%B0%83%E7%94%A8&url=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha">
 <img src="https://img.shields.io/badge/share-X%2FTwitter-000000.svg" alt="Share on X" /></a>
-<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha">
+<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha&text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha">
 <img src="https://img.shields.io/badge/share-Telegram-2CA5E0.svg" alt="Share on Telegram" /></a>
-<a href="https://service.weibo.com/share/share.php?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&title=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6">
+<a href="https://service.weibo.com/share/share.php?url=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha&title=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6">
 <img src="https://img.shields.io/badge/share-%E5%BE%AE%E5%8D%9A-E6162D.svg" alt="分享到微博" /></a>
-<a href="https://github.com/you233/dsh-jingcha">
+<a href="https://github.com/QTATQ233/dsh-jingcha">
 <img src="https://img.shields.io/badge/share-%E5%A4%8D%E5%88%B6%E9%93%BE%E6%8E%A5-6b7280.svg" alt="复制链接" /></a>
 

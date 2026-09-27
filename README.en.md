@@ -7,14 +7,14 @@
 <p><strong>A runtime supervisor for DeepSeek Harness — know whether a tool call is slow, stuck or broken, and stop the runaway one from a corner widget.</strong></p>
 
 <p>
-<a href="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml"><img src="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+<a href="https://github.com/QTATQ233/dsh-jingcha/actions/workflows/ci.yml"><img src="https://github.com/QTATQ233/dsh-jingcha/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-blue.svg" alt="topic: dsh-plugin" /></a>
 <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="0 dependencies" />
 <img src="https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg" alt="node >= 18" />
 <img src="https://img.shields.io/badge/model%20tokens-0-brightgreen.svg" alt="0 model tokens" />
 <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" /></a>
-<a href="https://github.com/you233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/you233/dsh-jingcha?style=social" alt="stars" /></a>
+<a href="https://github.com/QTATQ233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/QTATQ233/dsh-jingcha?style=social" alt="stars" /></a>
 </p>
 
 <p>
@@ -91,7 +91,7 @@ You ask the model to run something; the UI says "running" and then says nothing 
 
 ```powershell
 # Official plugin channel (restart dsh afterwards)
-dsh plugin --profile web add github:you233/dsh-jingcha
+dsh plugin --profile web add github:QTATQ233/dsh-jingcha
 
 # Self-tests: zero dependencies, dsh does not need to be running
 node test/verify.mjs          # 121 checks
@@ -237,12 +237,12 @@ MIT — see [LICENSE](LICENSE). Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT
 <a id="star-history"></a>
 ## ⭐ Star history
 
-<a href="https://star-history.com/#you233/dsh-jingcha&Date">
-<img src="https://api.star-history.com/svg?repos=you233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
+<a href="https://star-history.com/#QTATQ233/dsh-jingcha&Date">
+<img src="https://api.star-history.com/svg?repos=QTATQ233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
 </a>
 
 ## 📣 Share
 
-<a href="https://twitter.com/intent/tweet?text=Jingcha%20for%20DeepSeek%20Harness%3A%20runtime%20verdicts%20and%20force-stop%20for%20tool%20calls&url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-X%2FTwitter-000000.svg" alt="Share on X" /></a>
-<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-Telegram-2CA5E0.svg" alt="Share on Telegram" /></a>
-<a href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&t=Jingcha%20-%20runtime%20supervisor%20for%20DeepSeek%20Harness"><img src="https://img.shields.io/badge/share-Hacker%20News-FF6600.svg" alt="Share on Hacker News" /></a>
+<a href="https://twitter.com/intent/tweet?text=Jingcha%20for%20DeepSeek%20Harness%3A%20runtime%20verdicts%20and%20force-stop%20for%20tool%20calls&url=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-X%2FTwitter-000000.svg" alt="Share on X" /></a>
+<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-Telegram-2CA5E0.svg" alt="Share on Telegram" /></a>
+<a href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2FQTATQ233%2Fdsh-jingcha&t=Jingcha%20-%20runtime%20supervisor%20for%20DeepSeek%20Harness"><img src="https://img.shields.io/badge/share-Hacker%20News-FF6600.svg" alt="Share on Hacker News" /></a>

@@ -25,8 +25,8 @@ $env:DSH_CORDIS='<...>\node_modules\@deepseek-ai\cordis\lib\index.js'; node test
 
 先扫一眼这两个标签：
 
-- [good first issue](https://github.com/you233/dsh-jingcha/labels/good%20first%20issue) —— 挑好的、范围明确的入门任务；
-- [help wanted](https://github.com/you233/dsh-jingcha/labels/help%20wanted) —— 欢迎认领的活。
+- [good first issue](https://github.com/QTATQ233/dsh-jingcha/labels/good%20first%20issue) —— 挑好的、范围明确的入门任务；
+- [help wanted](https://github.com/QTATQ233/dsh-jingcha/labels/help%20wanted) —— 欢迎认领的活。
 
 没有合适的？下面这些是我们自己列的「第一次上手」清单，**在 issue 里说一声就能认领**：
 
