@@ -95,5 +95,5 @@ settings 字段（宿主会夹紧取值，客户端仍应先自行校验）：
 
 ## 5. 环境
 
-Windows + PowerShell 7 + Node 24；工作目录 C:\dsh-jingcha；插件目录 C:\dsh-jingcha；数据目录 $env:DSH_HOME\data\dsh-jingcha。
+Windows + PowerShell 7 + Node 24（任何目录都能跑；数据目录默认 %DSH_HOME%\data\dsh-jingcha）。
 写文件用 UTF-8 无 BOM；命令用 pwsh；不要重启 dsh、不要动 profile、不要改宿主侧文件（lib/core.js、lib/index.js、lib/sink.js、cordis.patch.yml、package.json）。

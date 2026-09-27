@@ -142,7 +142,8 @@ globalThis.fetch = fetchStub;
 try { Object.defineProperty(globalThis, 'location', { value: windowStub.location, configurable: true }); } catch (error) { /* ignore */ }
 
 console.log('== 鲸察挂件自检 v4 ==');
-await import('file:///C:/dsh-jingcha/lib/client.js');
+const bundleUrl = new URL('../lib/client.js', import.meta.url).href;
+await import(bundleUrl);
 
 check('以 __ModuleLoader__.load 登记', Boolean(entry));
 check("id 等于包名 '@local/dsh-jingcha'", entry && entry.id === '@local/dsh-jingcha', entry && entry.id);
