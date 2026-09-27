@@ -1,0 +1,59 @@
+# ══ 鲸察 (dsh-jingcha) —— DSH bundle 挂载声明 ══════════════════════════════
+# 这是插件的「挂载声明」：DSH 启动时按 bundle 层栈叠加各插件的 patch，
+# 本文件把监察插件插进 profile 的配置树。
+#
+# 安装（三种任选，细节见 README.md）：
+#   1) 官方：dsh plugin --profile web add link:C:/dsh-jingcha
+#   2) 免 pnpm：tools/install.ps1（建 junction + 改 profile package.json，自动备份）
+#   3) 临时试跑：dsh --profile web --patch C:\dsh-jingcha\cordis.patch.yml ...
+#      （第 3 种还要求 profile 能解析到 @local/dsh-jingcha，故仍推荐 1 或 2）
+#
+# 卸载：dsh plugin --profile web remove @local/dsh-jingcha，或 tools/uninstall.ps1
+# ═══════════════════════════════════════════════════════════════════════════
+
+- insert:
+    - id: dsh-jingcha
+      name: '@local/dsh-jingcha'
+      config:
+        # ── 输出位置 ────────────────────────────────────────────────────────
+        # 数据目录：status.json（实时快照）+ events.jsonl（事件流）
+        # 默认是 %DSH_HOME%\data\dsh-jingcha；这里显式指到工作区，方便随时打开查看。
+        # dataDir: 'D:\dsh-jingcha-data'   # 默认 %DSH_HOME%\data\dsh-jingcha；要改就写绝对路径
+        # 显示名（控制台前缀与报告标题用它）。
+        displayName: '鲸察'
+        # 状态翻转时往宿主控制台打一行（dsh 那个黑窗口）。
+        console: true
+
+        # ── 判定阈值（毫秒）─────────────────────────────────────────────────
+        # 单次工具调用超过它 → 记「慢」
+        slowCallMs: 30000
+        # 在途调用超过它 → 记「挂起」；再翻倍级别 → 升级为「卡住」
+        hangCallMs: 120000
+        stuckCallMs: 300000
+        # 有 agent 在跑但这么久没有任何输出（没有流式帧、没有会话事件、没有工具结果）→ 「没有输出」
+        silenceMs: 90000
+        # 事件循环延迟告警 / 判定卡死
+        lagWarnMs: 500
+        lagStuckMs: 5000
+        # 等待用户审批超过它 → 提示「宿主像卡住，其实在等人点确认」
+        approvalWarnMs: 20000
+
+        # ── 错误判定 ────────────────────────────────────────────────────────
+        # 同一工具在窗口内失败这么多次 → 「错误风暴」（像 bug，不是慢）
+        errorStormCount: 3
+        errorStormWindowMs: 120000
+        # 成功但结果小于这个字节数 → 记「空结果」；0 = 关闭该检测
+        emptyResultBytes: 0
+
+        # ── 节奏与体量 ──────────────────────────────────────────────────────
+        heartbeatMs: 1000
+        statusEveryMs: 5000
+        # 长调用期间的「进度心跳」与「控制台仍在跑」间隔（毫秒）
+        progressEveryMs: 30000
+        consoleProgressMs: 60000
+        maxLogBytes: 8000000
+        # 查询工具名（模型用它问「现在正常吗」）：默认 false = 完全不进模型上下文（0 token）。
+        # 想要会话里能直接问「鲸察看下」，把它改成 true（代价：工具描述常驻约 176 tokens/请求）。
+        toolEnabled: false
+        # 自动强制停止：在途调用超过它（毫秒）就掐断；0 = 关闭（只手动停）。建议 300000 起。
+        autoKillAfterMs: 0

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.backup/
+.selftest-*/
+.tmp-*
+*.tmp
+*.log
+.dsh-jingcha/
+status.json
+events.jsonl
+widget-settings.json

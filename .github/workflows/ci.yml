@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # 两套自检都是零依赖的；真 cordis 那套需要本地有 @deepseek-ai/cordis，CI 里跳过（README 有说明）
+      - name: 离线自检（判定 / 接线 / 路由 / 强停）
+        run: node test/verify.mjs
+      - name: 挂件自检（DOM 桩）
+        run: node test/verify-client.mjs

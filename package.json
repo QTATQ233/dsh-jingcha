@@ -1,0 +1,38 @@
+{
+  "name": "@local/dsh-jingcha",
+  "version": "0.3.0",
+  "private": true,
+  "description": "鲸察 (dsh-jingcha) · DSH 运行时监察插件：工具调用 / 事件循环 / 错误风暴的实时体检，支持按调用强制停止",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./core": {
+      "default": "./lib/core.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "selftest": "node test/verify.mjs"
+  },
+  "license": "MIT"
+}
