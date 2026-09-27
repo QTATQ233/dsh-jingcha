@@ -24,15 +24,8 @@ const REPLACEMENTS = [
   // 数据目录：源码里的显式路径改成注释示例（默认值为 %DSH_HOME%\\data\\dsh-jingcha）
   ["        dataDir: '$env:DSH_HOME\\data\\dsh-jingcha'", "        # dataDir: 'D:\\dsh-jingcha-data'   # 默认 %DSH_HOME%\\data\\dsh-jingcha；要改就写绝对路径"],
   // 插件目录
-  ['C:\\dsh-jingcha', 'C:\\dsh-jingcha'],
-  ['C:/dsh-jingcha', 'C:/dsh-jingcha'],
   // 数据目录（文档里的其它出现）
-  ['$env:DSH_HOME\\data\\dsh-jingcha', '$env:DSH_HOME\\data\\dsh-jingcha'],
-  ['$env:DSH_HOME/data/dsh-jingcha', '$env:DSH_HOME/data/dsh-jingcha'],
-  ['C:\\dsh-jingcha', 'C:\\dsh-jingcha'],
-  ['C:/dsh-jingcha', 'C:/dsh-jingcha'],
   // 老包名残留
-  ['@local/dsh-jingcha', '@local/dsh-jingcha'],
   // 个人信息兜底：从仓库根目录的 .privacy-needles.json 读（该文件不进发布副本，也不入库）
   ...personalNeedles(),
 ];

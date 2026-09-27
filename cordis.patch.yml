@@ -17,7 +17,7 @@
       config:
         # ── 输出位置 ────────────────────────────────────────────────────────
         # 数据目录：status.json（实时快照）+ events.jsonl（事件流）
-        # 默认是 %DSH_HOME%\data\dsh-jingcha；这里显式指到工作区，方便随时打开查看。
+        # 默认是 %DSH_HOME%\data\dsh-jingcha（不写 dataDir 就用它）；要指到别处再取消下面这行注释。
         # dataDir: 'D:\dsh-jingcha-data'   # 默认 %DSH_HOME%\data\dsh-jingcha；要改就写绝对路径
         # 显示名（控制台前缀与报告标题用它）。
         displayName: '鲸察'

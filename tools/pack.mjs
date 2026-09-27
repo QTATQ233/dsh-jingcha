@@ -27,7 +27,7 @@ const readme = [
   "# 鲸察（" + pkg.name + " " + version + "）安装说明",
   "",
   "1. 解压到任意目录，例如 C:\\dsh-jingcha",
-  "2. 改 cordis.patch.yml 里的 dataDir 为你的路径（默认 $env:DSH_HOME\\data\\dsh-jingcha）",
+  "2. 改 cordis.patch.yml 里的 dataDir 为你的数据目录（默认 %DSH_HOME%/data/dsh-jingcha，可不写）",
   "3. powershell -ExecutionPolicy Bypass -File tools\\install.ps1",
   "4. 重启 DSH（宿主代码只在启动时加载）",
   "5. 自检：node test\\verify.mjs / node test\\verify-client.mjs",

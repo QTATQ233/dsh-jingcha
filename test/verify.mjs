@@ -463,7 +463,7 @@ function makeFakeCtx() {
   const statusBody = JSON.parse(resStatus.body);
   check('status 接口返回 verdict 与在途列表', resStatus.statusCode === 200 && Boolean(statusBody.verdict) && Array.isArray(statusBody.work.inflight), resStatus.body.slice(0, 120));
   const resBlocked = makeRes();
-  statusRoute.handler(makeReq('/api/jingcha/status', '10.0.0.9', 'GET'), resBlocked);
+  statusRoute.handler(makeReq('/api/jingcha/status', '203.0.113.9', 'GET'), resBlocked);
   check('非回环地址被拒（403）', resBlocked.statusCode === 403, String(resBlocked.statusCode));
 
   // ── 跨站 / 重绑定栅栏（安全审查 S1、M1）──
