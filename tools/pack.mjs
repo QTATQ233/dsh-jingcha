@@ -49,8 +49,26 @@ if (leaked.length > 0) {
   process.exit(1);
 }
 // 文本层自检：本机路径 / 个人标识不许出现在分发包里
-// 注意：必须区分大小写 —— 中性化的路径是 C:\\dsh-jingcha / C:/dsh-jingcha，不区分大小写会误报
-const LOCAL_PATTERNS = [/C:\\\\DSH/, /C:\/DSH/, /C:\\dsh-jingcha/, /0000000000/, /QQ\.COM/];
+/** 本机隐私针（取自 .privacy-needles.json 的 from 侧）；脚本本身不含任何个人信息。
+ *  注意：必须区分大小写 —— 中性化后的路径是 C:\\dsh-jingcha / C:/dsh-jingcha。 */
+/** 本机隐私针（取自 .privacy-needles.json 的 from 侧）；脚本本身不含任何个人信息。
+ *  注意区分大小写：中性化后的路径是 C:\\dsh-jingcha / C:/dsh-jingcha。 */
+const LOCAL_PATTERNS = (function patterns() {
+  const out = [];
+  try {
+    const file = path.join(root, ".privacy-needles.json");
+    if (existsSync(file)) {
+      for (const pair of JSON.parse(readFileSync(file, "utf8"))) {
+        const from = Array.isArray(pair) ? String(pair[0]) : "";
+        if (from.length >= 4) {
+          const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, function (ch) { return "\\" + ch; });
+          out.push(new RegExp(escaped));
+        }
+      }
+    }
+  } catch { /* 没有针文件就只做通用检查 */ }
+  return out;
+})();
 const textual = [];
 (function walkText(dir) {
   for (const entry of readdirSync(dir)) {
