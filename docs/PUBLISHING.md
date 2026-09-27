@@ -38,6 +38,18 @@ git commit -m "feat: 这次改了什么"
 
 推完去仓库设置加 topic：`dsh-plugin`（网页 Settings → Topics，或 `gh repo edit --add-topic dsh-plugin`），这样才会被 dsh plugin 检索到。
 
+## 本机 SSH 推送配置（已配置好，以后直接 push）
+
+这台机器上 `github.com:22` 被拒（Steam++ 改 hosts 后 22 不通），所以走 GitHub 官方的 SSH-over-443 通道：
+
+```
+# 仓库里已经设好（只写进 .git/config，不会提交）：
+git config core.sshCommand "ssh -F C:/dsh-jingcha/tools/ssh-config-jingcha"
+# 该配置文件内容：Host github.com -> HostName ssh.github.com / Port 443 / IdentityFile 指向专用密钥
+```
+
+之后 `git push` 直接可用；换机器时把 `tools/ssh-config-jingcha` 里的路径改成自己的即可。
+
 ## 提交前的隐私检查清单
 
 - [ ] `node tools/prepare-publish.mjs` 末尾打印「隐私自检：通过」；
