@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 安全漏洞（私密上报）
+    url: https://github.com/you233/dsh-jingcha/security/advisories/new
+    about: 请不要开公开 issue，用 GitHub 的私密漏洞通道
+  - name: 📖 架构与状态机
+    url: https://github.com/you233/dsh-jingcha/blob/main/docs/ARCHITECTURE.md
+    about: 判定优先级、数据流、设计取舍
+  - name: 🧩 二次开发最小改动清单
+    url: https://github.com/you233/dsh-jingcha/blob/main/docs/EXTENDING.md
+    about: 加判定规则 / 路由 / 面板分区 / 设置项要改哪几处

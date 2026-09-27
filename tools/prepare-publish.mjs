@@ -14,7 +14,7 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const out = path.join(root, 'dist', 'publish');
 const KEEP_FILES = ['cordis.patch.yml', 'package.json', 'README.md', 'README.en.md', 'CONTRIBUTING.md', 'SECURITY.md', '.gitattributes'];
-const KEEP_DIRS = ['lib', 'test', 'tools', 'docs', '.github'];
+const KEEP_DIRS = ['lib', 'test', 'tools', 'docs', 'examples', '.github'];
 const TEXT_FILE = /\.(js|mjs|cjs|ps1|yml|yaml|json|md|txt)$/i;
 
 /** 顺序敏感：长的、具体的放前面。 */

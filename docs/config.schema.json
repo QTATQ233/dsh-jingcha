@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/you233/dsh-jingcha/docs/config.schema.json",
+  "title": "鲸察插件配置（cordis.patch.yml 里 config: 下的字段）",
+  "description": "所有字段都有默认值；未知字段会被忽略（不会报错）。改完需要重启 dsh。",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "dataDir": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "description": "数据目录（status.json / events.jsonl / widget-settings.json）。null = %DSH_HOME%/data/dsh-jingcha。"
+    },
+    "displayName": {
+      "type": "string",
+      "default": "鲸察",
+      "description": "控制台前缀与报告标题。"
+    },
+    "toolEnabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否注册模型可见的查询工具（false = 0 token）。注意：插件默认值是 true，随仓库的 patch 里显式设为 false。"
+    },
+    "console": {
+      "type": "boolean",
+      "default": true,
+      "description": "判定状态翻转时往宿主控制台打一行。"
+    },
+    "slowCallMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 30000,
+      "description": "单次调用超过它记为「慢」。"
+    },
+    "hangCallMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 120000,
+      "description": "在途超过它记为「挂起」。"
+    },
+    "stuckCallMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 300000,
+      "description": "在途超过它记为「卡住」（还要满足没有产出）。"
+    },
+    "silenceMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 90000,
+      "description": "有 agent 在跑却这么久没有任何输出 → 「没有输出」。"
+    },
+    "lagWarnMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 500,
+      "description": "事件循环延迟告警阈值。"
+    },
+    "lagStuckMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 5000,
+      "description": "事件循环阻塞（判定升级为卡住）阈值。"
+    },
+    "approvalWarnMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 20000,
+      "description": "等待用户审批超过它就提示（避免误判成卡死）。"
+    },
+    "errorStormCount": {
+      "type": "integer",
+      "minimum": 2,
+      "default": 3,
+      "description": "同一窗口内同一工具失败这么多次 → 「错误风暴」。"
+    },
+    "errorStormWindowMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 120000,
+      "description": "错误风暴的统计窗口。"
+    },
+    "emptyResultBytes": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "成功但结果小于它记为「空结果」；0 = 关闭该检测。"
+    },
+    "heartbeatMs": {
+      "type": "integer",
+      "minimum": 200,
+      "default": 1000,
+      "description": "心跳周期：也是延迟与 RSS 的采样周期。"
+    },
+    "statusEveryMs": {
+      "type": "integer",
+      "minimum": 500,
+      "default": 5000,
+      "description": "status.json 的重写间隔（状态变化会立即写）。"
+    },
+    "progressEveryMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 30000,
+      "description": "长调用期间的进度心跳间隔（同时用于「卡住」的静默判据）。"
+    },
+    "consoleProgressMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 60000,
+      "description": "控制台「仍在跑」提示的最小间隔；0 = 不打。"
+    },
+    "maxLogBytes": {
+      "type": "integer",
+      "minimum": 65536,
+      "default": 8000000,
+      "description": "events.jsonl 轮转阈值。"
+    },
+    "autoKillAfterMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "自动强制停止阈值；0 = 关闭。开启时还要求「没有产出」。"
+    },
+    "memoryLeakWindow": {
+      "type": "integer",
+      "minimum": 2,
+      "default": 5,
+      "description": "内存泄漏预警：RSS 连续这么多个心跳递增才算（需要 window+1 个采样点）。"
+    },
+    "memoryLeakGrowth": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0.1,
+      "description": "内存泄漏预警：窗口内首尾增幅超过这个比例才算（0.1 = 10%）。"
+    },
+    "rssWarnBytes": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 2500000000,
+      "description": "快照里 rssWarn 标记的阈值（仅提示）。"
+    },
+    "previewArgs": {
+      "type": "boolean",
+      "default": true,
+      "description": "是否把工具参数摘要写进事件流与快照（false = 只记字节数）。"
+    },
+    "redactPreviews": {
+      "type": "boolean",
+      "default": true,
+      "description": "摘要是否按 redactPatterns 打码。"
+    },
+    "redactPatterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "脱敏正则（大小写不敏感；写错会被忽略）。",
+      "default": [
+        "(token|secret|password|passwd|authorization|api[_-]?key|cookie)\\s*[=:]\\s*\\S+",
+        "(?i)bearer\\s+[A-Za-z0-9._\\-]+"
+      ]
+    },
+    "apiToken": {
+      "type": "string",
+      "default": "",
+      "description": "设了它，四个 HTTP 端点都要求 x-jingcha-token 头（多用户机器建议设）。"
+    },
+    "exposePaths": {
+      "type": "boolean",
+      "default": false,
+      "description": "设置接口是否返回数据目录的绝对路径（默认只回文件名）。"
+    }
+  }
+}

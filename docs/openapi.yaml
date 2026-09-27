@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: 鲸察 HTTP 接口（dsh-jingcha）
+  version: 0.4.0
+  description: |
+    给右下角挂件用的本机接口，也可以被你自己的脚本调用。
+
+    准入规则（每个端点都一样）：
+    - 只接受来自回环地址的连接；
+    - Host 必须是 127.0.0.1 / localhost / ::1（挡 DNS rebinding）；
+    - 拒绝带 Origin 或 Sec-Fetch-Site: cross-site|same-site 的请求；
+    - 变更类端点只接受 POST + content-type: application/json（挡 img 一发即杀与跨站表单）；
+    - 若配置了 apiToken，所有请求都要带 x-jingcha-token 头。
+
+    错误一律是 JSON：{"ok": false, "error": "<原因>"}，常见状态码 403（准入）/ 405（方法）/ 415（content-type）。
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:3080
+    description: DSH web GUI 默认端口（本机回环）
+tags:
+  - name: status
+    description: 读取实时判定与在途调用
+  - name: control
+    description: 强制停止（会改变运行状态）
+  - name: settings
+    description: 挂件设置的读写
+paths:
+  /api/jingcha/status:
+    get:
+      tags: [status]
+      summary: 实时快照（与 status.json 同源）
+      responses:
+        "200":
+          description: 当前判定 + 运行计量 + 在途调用 + 最近告警
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "403": { $ref: "#/components/responses/Blocked" }
+  /api/jingcha/kill:
+    post:
+      tags: [control]
+      summary: 强制停止一个调用（或按范围停）
+      description: |
+        传 callId 停单个调用；不传 callId 则按 scope 停范围（默认 stalled）。
+        嵌套子调用（父 id 加 :ptc: 序号）同样可以停；若只有父调用在跑，会明确拒绝（reason=nested-parent-only）而不是误杀父调用。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KillRequest" }
+      responses:
+        "200":
+          description: 停止结果（未命中时 ok=false 并给 reason）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillResponse" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "405": { $ref: "#/components/responses/UsePost" }
+        "415": { $ref: "#/components/responses/NeedJson" }
+  /api/jingcha/stop:
+    post:
+      tags: [control]
+      summary: 停止所有正在跑的轮次（等价界面上的停止按钮）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 200, description: 记进事件流的简短原因 }
+      responses:
+        "200":
+          description: 被取消的 agent 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  agents: { type: array, items: { type: string } }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "405": { $ref: "#/components/responses/UsePost" }
+        "415": { $ref: "#/components/responses/NeedJson" }
+  /api/jingcha/settings:
+    get:
+      tags: [settings]
+      summary: 读挂件设置（含默认值）
+      responses:
+        "200":
+          description: 当前设置
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsResponse" }
+        "403": { $ref: "#/components/responses/Blocked" }
+    post:
+      tags: [settings]
+      summary: 写挂件设置（字段白名单 + 数值夹紧后落盘）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Settings" }
+      responses:
+        "200":
+          description: 夹紧后的设置
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsResponse" }
+        "403": { $ref: "#/components/responses/Blocked" }
+        "405": { $ref: "#/components/responses/UsePost" }
+        "415": { $ref: "#/components/responses/NeedJson" }
+components:
+  securitySchemes:
+    apiToken:
+      type: apiKey
+      in: header
+      name: x-jingcha-token
+      description: 仅当配置里设置了 apiToken 时才需要
+  responses:
+    Blocked:
+      description: 准入被拒（非回环 / Host 不合法 / 跨站来源 / token 不对）
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    UsePost:
+      description: 变更类端点不接受 GET（405）
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NeedJson:
+      description: content-type 必须是 application/json（415）
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string }
+    Reason:
+      type: object
+      properties:
+        kind: { type: string, examples: [tool-stall, memory-leak, error-storm] }
+        severity: { type: string, enum: [info, warn, high, critical] }
+        text: { type: string, description: 可直接展示给用户的中文说明 }
+        tool: { type: string }
+        callId: { type: string }
+        elapsedMs: { type: integer }
+        growth: { type: number, description: memory-leak 专用：窗口内增幅比例 }
+        window: { type: integer, description: memory-leak 专用：连续递增的心跳周期数 }
+    Inflight:
+      type: object
+      properties:
+        callId: { type: string }
+        tool: { type: string }
+        elapsedMs: { type: integer }
+        preview: { type: string, description: 参数摘要（已截断、已脱敏） }
+        nested: { type: boolean }
+        phase: { type: string, enum: [pre, run], description: pre 表示还没派发（等待裁决或审批） }
+        silentMs: { type: integer, description: 距上次产出信号多久 }
+    Finding:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        kind: { type: string }
+        severity: { type: string, enum: [info, warn, high, critical] }
+        text: { type: string }
+    StatusResponse:
+      type: object
+      properties:
+        ok: { type: boolean, const: true }
+        schema: { type: string, const: jingcha/status@1 }
+        generatedAt: { type: string, format: date-time }
+        pid: { type: integer }
+        uptimeMs: { type: integer }
+        verdict:
+          type: object
+          properties:
+            state: { type: string, enum: [ok, busy, degraded, erroring, stalled] }
+            label: { type: string }
+            since: { type: string, format: date-time }
+            reasons: { type: array, items: { $ref: "#/components/schemas/Reason" } }
+        runtime:
+          type: object
+          properties:
+            eventLoopLagMs: { type: integer }
+            maxLagMs: { type: integer }
+            rssBytes: { type: integer }
+            heapUsedBytes: { type: integer }
+            memoryLeak:
+              type: object
+              properties:
+                active: { type: boolean }
+                growth: { type: number }
+                rising: { type: integer }
+                window: { type: integer }
+                threshold: { type: number }
+                samples: { type: integer }
+                fromRssBytes: { type: integer }
+                toRssBytes: { type: integer }
+                since: { type: string, format: date-time }
+        work:
+          type: object
+          properties:
+            inflight: { type: array, items: { $ref: "#/components/schemas/Inflight" } }
+            runningAgents: { type: integer }
+            counters:
+              type: object
+              additionalProperties: { type: integer }
+        findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        extras:
+          type: object
+          description: 宿主环境与接口自述（dataDir / tool / api / node / platform 等）
+    KillRequest:
+      type: object
+      properties:
+        callId: { type: string, description: 要停的调用 id；与 scope 二选一 }
+        scope: { type: string, enum: [stalled, all], description: 不传 callId 时按范围停，默认 stalled }
+        reason: { type: string, maxLength: 200, description: 记进事件流；会过滤控制字符 }
+    KillResponse:
+      type: object
+      properties:
+        ok: { type: boolean, description: 是否真的停掉了 }
+        killed: { type: array, items: { type: string }, description: 实际被中止的 callId }
+        reason: { type: string, description: "未命中时的原因：not-live / nested-parent-only / empty-callId / ambiguous / abort-failed" }
+        parentId: { type: string, description: reason=nested-parent-only 时给出父调用 id }
+        inflight: { type: integer }
+    Settings:
+      type: object
+      properties:
+        version: { type: integer }
+        position:
+          type: object
+          properties:
+            mode: { type: string, enum: [docked, free] }
+            right: { type: integer }
+            bottom: { type: integer }
+            left: { type: [integer, "null"] }
+            top: { type: [integer, "null"] }
+        size: { type: number, minimum: 0.6, maximum: 2 }
+        opacity: { type: number, minimum: 0.2, maximum: 1 }
+        accent: { type: string, pattern: "^$|^#[0-9a-fA-F]{3,8}$" }
+        labels: { type: boolean }
+        thresholds:
+          type: object
+          properties:
+            yellowSec: { type: integer, minimum: 1, maximum: 3600 }
+            redSec: { type: integer, minimum: 2, maximum: 7200 }
+        popups: { type: boolean }
+        popupDurationMs: { type: integer, minimum: 1500, maximum: 60000 }
+        panel:
+          type: object
+          properties:
+            defaultOpen: { type: boolean }
+            width: { type: integer, minimum: 260, maximum: 620 }
+        theme: { type: string, enum: [auto, dark, light] }
+        hidden: { type: boolean }
+    SettingsResponse:
+      type: object
+      properties:
+        ok: { type: boolean, const: true }
+        settings: { $ref: "#/components/schemas/Settings" }
+        defaults: { $ref: "#/components/schemas/Settings" }
+        file: { type: string, description: 落盘文件名（不返回绝对路径） }

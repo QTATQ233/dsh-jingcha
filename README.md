@@ -13,15 +13,21 @@
 <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="0 dependencies" />
 <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
 <img src="https://img.shields.io/badge/model%20tokens-0-brightgreen.svg" alt="0 model tokens" />
+<img src="https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg" alt="node >= 18" />
+<img src="https://img.shields.io/badge/DSH-plugin-4f46e5.svg" alt="DSH plugin" />
+<a href="https://github.com/you233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/you233/dsh-jingcha?style=social" alt="stars" /></a>
 </p>
 
 <p>
 <a href="README.md">中文</a> · <a href="README.en.md">English</a> · <a href="docs/">文档</a> · <a href="CHANGELOG.md">更新日志</a>
 </p>
 
+<p><img src="docs/assets/demo.gif" alt="状态胶囊演示（示意）" width="72%" /></p>
 <p>
-<img src="docs/assets/screenshot-light.png" alt="浅色模式" width="45%" />
-<img src="docs/assets/screenshot-dark.png" alt="深色模式" width="45%" />
+<img src="docs/assets/screenshot-light.png" alt="浅色模式" width="23%" />
+<img src="docs/assets/screenshot-dark.png" alt="深色模式" width="23%" />
+<img src="docs/assets/screenshot-panel-detail.png" alt="判定与在途调用" width="23%" />
+<img src="docs/assets/screenshot-capsule.png" alt="状态胶囊" width="23%" />
 </p>
 
 <p>💡 <strong>如果这个项目帮到了你，点个 ⭐ 就是最大的支持！</strong></p>
@@ -41,9 +47,14 @@
 - [安全边界](#安全边界)
 - [零 token](#零-token)
 - [它是怎么接进去的](#它是怎么接进去的)
+- [架构与状态机](#架构与状态机)
+- [接口与 Schema](#接口与-schema)
+- [示例](#示例)
 - [二次开发](#二次开发)
 - [常见问题](#常见问题)
 - [文档](#文档)
+- [术语表](#术语表)
+- [路线图](#路线图)
 - [贡献](#贡献)
 - [许可](#许可)
 
@@ -178,6 +189,57 @@ lib/client.js  浏览器挂件（单文件 bundle，零 require）
 - **数据长多大？** events.jsonl 超 8MB 自动轮转保留一份（约 16MB 上限），status.json 始终只有一份快照；
 - **要重启吗？** 宿主侧代码改动需要重启 dsh；只改挂件（lib/client.js）刷新页面即可。
 
+<a id="架构与状态机"></a>
+## 🏗️ 架构与状态机
+
+数据流、五个状态之间的迁移条件、13 种 reason kind 的严重度与去处，以及"为什么这么设计"的六条取舍，
+都画在 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（含两张 Mermaid 图：组件数据流 + 判定状态机）。
+
+- **优先级**：`stalled` > `erroring` > `degraded` > `busy` / `ok` —— 一个卡住的调用不会被一堆小告警淹没；
+- **强停原理**：pre-execute 就装上自己的 AbortController 并替换 `exec.signal`，DSH 派发时与 callerSignal 融合，
+  上游取消照旧、我们也能主动掐断；调用结束还原；
+- **只读优先**：所有监控路径包在 `safe()` 里，异常只记账，绝不改写工具结果与取消语义。
+
+<a id="接口与-schema"></a>
+## 🔌 接口与 Schema
+
+| 产物 | 文件 | 用途 |
+|---|---|---|
+| OpenAPI 3.1 | **[docs/openapi.yaml](docs/openapi.yaml)** | 四个本机接口的完整契约（含准入规则、错误码、全部响应字段） |
+| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | `cordis.patch.yml` 里 `config:` 的 28 个字段：类型 / 默认值 / 取值范围 / 说明 |
+
+接口速览（全部要求回环 + Host 白名单；变更类要 POST + `application/json`）：
+
+```http
+GET  /api/jingcha/status      # 实时判定 + 在途调用 + 最近告警（与 status.json 同源）
+POST /api/jingcha/kill        # { "callId": "..." } 或 { "scope": "stalled|all" }
+POST /api/jingcha/stop        # 停掉所有在跑的轮次
+GET  /api/jingcha/settings    # 读挂件设置（含默认值）
+POST /api/jingcha/settings    # 写挂件设置（字段白名单 + 数值夹紧后落盘）
+```
+
+<a id="示例"></a>
+## 🧪 示例
+
+[examples/](examples/) 里四个零依赖脚本，直接 `node` 跑：
+
+| 脚本 | 用途 |
+|---|---|
+| [01-read-status.mjs](examples/01-read-status.mjs) | 读快照打印判定；状态不是 ok/busy 时退出码 1（可挂定时任务 / CI） |
+| [02-watch-http.mjs](examples/02-watch-http.mjs) | 每 2 秒拉一次接口，只在判定变差时打印 |
+| [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | 列出在途调用并强停指定 / 最久的那个；**默认 dry-run** |
+| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | 直接用 `lib/core.js` 造一条判定（演示可扩展性） |
+
+<a id="术语表"></a>
+## 📔 术语表
+
+判定 / 状态 / 理由 / 告警 / 在途 / 卡住 / 静默 / 融合信号 / 嵌套子调用 / pts … 全部中英对照见 **[docs/GLOSSARY.md](docs/GLOSSARY.md)**。
+
+<a id="路线图"></a>
+## 🗺️ 路线图
+
+**[ROADMAP.md](ROADMAP.md)**：0.5（判定规则可编排 / 会话维度过滤 / 停后取证）· 0.6（i18n / 配置校验 / 指标导出）· 1.0（契约单一化 / 静默失败可观测）。
+明确不做：自动改工具调用、默认联网上报、硬杀同进程死循环、默认把观测塞进模型上下文。
 <a id="文档"></a>
 ## 📚 文档
 
@@ -187,6 +249,13 @@ lib/client.js  浏览器挂件（单文件 bundle，零 require）
 | [docs/EXTENDING.md](docs/EXTENDING.md) | 加判定规则 / 路由 / 面板分区 / 设置项的最小改动清单 |
 | [docs/PUBLISHING.md](docs/PUBLISHING.md) | 维护者发布流程（复制脱敏 + 隐私自检 + 推送） |
 | [lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md) | 挂件规格与验收清单 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构数据流 + 判定状态机（Mermaid） |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | 术语表（中英对照） |
+| [docs/openapi.yaml](docs/openapi.yaml) | 接口的 OpenAPI 3.1 契约 |
+| [docs/config.schema.json](docs/config.schema.json) | 配置的 JSON Schema |
+| [examples/](examples/) | 四个可直接运行的零依赖示例 |
+| [ROADMAP.md](ROADMAP.md) | 路线图与「明确不做」 |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 贡献者公约 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本记录 |
 
 <a id="贡献"></a>
@@ -198,4 +267,25 @@ lib/client.js  浏览器挂件（单文件 bundle，零 require）
 <a id="许可"></a>
 ## 📄 许可
 
-MIT —— 见 [LICENSE](LICENSE)。
+MIT —— 见 [LICENSE](LICENSE)。参与前请先读 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+
+---
+
+<a id="star-history"></a>
+## ⭐ Star History
+
+<a href="https://star-history.com/#you233/dsh-jingcha&Date">
+<img src="https://api.star-history.com/svg?repos=you233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
+</a>
+
+## 📣 分享
+
+<a href="https://twitter.com/intent/tweet?text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6%EF%BC%8C%E5%8F%AF%E5%BC%BA%E5%88%B6%E5%81%9C%E6%8E%89%E5%8D%A1%E4%BD%8F%E7%9A%84%E5%B7%A5%E5%85%B7%E8%B0%83%E7%94%A8&url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha">
+<img src="https://img.shields.io/badge/share-X%2FTwitter-000000.svg" alt="Share on X" /></a>
+<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&text=%E9%B2%B8%E5%AF%9F%20dsh-jingcha">
+<img src="https://img.shields.io/badge/share-Telegram-2CA5E0.svg" alt="Share on Telegram" /></a>
+<a href="https://service.weibo.com/share/share.php?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&title=%E9%B2%B8%E5%AF%9F%20dsh-jingcha%EF%BC%9ADSH%20%E8%BF%90%E8%A1%8C%E6%97%B6%E7%9B%91%E5%AF%9F%E6%8F%92%E4%BB%B6">
+<img src="https://img.shields.io/badge/share-%E5%BE%AE%E5%8D%9A-E6162D.svg" alt="分享到微博" /></a>
+<a href="https://github.com/you233/dsh-jingcha">
+<img src="https://img.shields.io/badge/share-%E5%A4%8D%E5%88%B6%E9%93%BE%E6%8E%A5-6b7280.svg" alt="复制链接" /></a>
+

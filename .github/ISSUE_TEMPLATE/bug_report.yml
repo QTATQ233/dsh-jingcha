@@ -1,0 +1,65 @@
+name: 🐛 Bug 报告
+description: 鲸察本身出问题了（误判 / 漏判 / 挂件 / 接口 / 崩溃）
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全。贴日志前请先自行打码（events.jsonl 里有工具参数摘要）。
+        安全相关的问题请不要开公开 issue，走 SECURITY.md 里的私密通道。
+  - type: input
+    id: version
+    attributes:
+      label: 鲸察版本 / 提交
+      description: package.json 里的 version，或 git 提交号
+      placeholder: "0.4.0 / 38205fa"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: DSH 版本、Node 版本、操作系统
+      placeholder: "DSH 0.1.7-rc.2 · Node v24.19.0 · Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的部分
+      options:
+        - 判定（误报 / 漏报 / 阈值）
+        - 强制停止（停不掉 / 停错）
+        - 挂件（显示 / 交互 / 主题）
+        - HTTP 接口（状态码 / 准入 / 设置）
+        - 落盘（status.json / events.jsonl）
+        - 安装 / 卸载
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 你预期什么、实际什么；有判定输出就直接贴。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 让模型跑一个 3 分钟的命令
+        2. 观察胶囊颜色
+        3. 点 ⛔ …
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 证据（已打码）
+      description: status.json 的 verdict 段、events.jsonl 尾部、控制台那一行、截图
+      render: text
+    validations:
+      required: false

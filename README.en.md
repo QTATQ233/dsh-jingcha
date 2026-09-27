@@ -4,27 +4,33 @@
 
 <h1>Jingcha · dsh-jingcha</h1>
 
-<p><strong>Runtime supervisor for DeepSeek Harness: live verdicts on tool calls, event-loop and error storms + force-stop a call + a traffic-light widget in the corner</strong></p>
+<p><strong>A runtime supervisor for DeepSeek Harness — know whether a tool call is slow, stuck or broken, and stop the runaway one from a corner widget.</strong></p>
 
 <p>
 <a href="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml"><img src="https://github.com/you233/dsh-jingcha/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/topic-dsh--plugin-blue.svg" alt="topic: dsh-plugin" /></a>
 <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="0 dependencies" />
-<a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
+<img src="https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg" alt="node >= 18" />
 <img src="https://img.shields.io/badge/model%20tokens-0-brightgreen.svg" alt="0 model tokens" />
+<a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" /></a>
+<a href="https://github.com/you233/dsh-jingcha/stargazers"><img src="https://img.shields.io/github/stars/you233/dsh-jingcha?style=social" alt="stars" /></a>
 </p>
 
 <p>
 <a href="README.md">中文</a> · <a href="README.en.md">English</a> · <a href="docs/">Docs</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
+<p><img src="docs/assets/demo.gif" alt="status capsule demo (stylised)" width="72%" /></p>
+
 <p>
-<img src="docs/assets/screenshot-light.png" alt="light theme" width="45%" />
-<img src="docs/assets/screenshot-dark.png" alt="dark theme" width="45%" />
+<img src="docs/assets/screenshot-light.png" alt="light theme" width="23%" />
+<img src="docs/assets/screenshot-dark.png" alt="dark theme" width="23%" />
+<img src="docs/assets/screenshot-panel-detail.png" alt="verdict and in-flight calls" width="23%" />
+<img src="docs/assets/screenshot-capsule.png" alt="status capsule" width="23%" />
 </p>
 
-<p>💡 <strong>If this project helps you, a ⭐ is the greatest support!</strong></p>
+<p>💡 <strong>If this project helps you, a ⭐ is the greatest support.</strong></p>
 
 </div>
 
@@ -33,14 +39,18 @@
 ## 📖 Contents
 
 - [Why](#why)
-- [Install](#install)
+- [What it looks like](#what-it-looks-like)
+- [Quick start](#quick-start)
 - [Features](#features)
 - [Verdicts](#verdicts)
 - [Configuration](#configuration)
 - [Security](#security)
 - [Zero model tokens](#zero-model-tokens)
-- [How it hooks in](#how-it-hooks-in)
-- [Extending](#extending)
+- [Architecture and state machine](#architecture-and-state-machine)
+- [API and schemas](#api-and-schemas)
+- [Examples](#examples)
+- [Glossary](#glossary)
+- [Roadmap](#roadmap)
 - [FAQ](#faq)
 - [Docs](#docs)
 - [Contributing](#contributing)
@@ -51,130 +61,188 @@
 <a id="why"></a>
 ## 🎯 Why
 
-| Problem | Without it | With it |
-|---|---|---|
-| A tool call goes quiet | The UI just says "running" — slow, dead, or waiting for your approval? | Snapshot + event stream give a **verdict with reasons** (slow / hanging / stuck / silent / awaiting approval / error storm) |
-| You want to stop one runaway call | You can only cancel the whole turn | **Force-stop by callId**, or "stop stuck calls" / "stop all turns" (with confirmation) |
-| You need a post-mortem | Nothing recorded | One event per call (tool, argument preview, duration, result, error class) in events.jsonl |
-| You don't want plugin tokens | Registering a tool costs context | **toolEnabled: false** by default — the model never sees it, **0 tokens** |
+You ask the model to run something; the UI says "running" and then says nothing for four minutes. Is it slow? Dead? Waiting for your approval? DeepSeek Harness gives you a spinner — Jingcha gives you an answer, plus a way out.
 
-<a id="install"></a>
-## 🚀 Install
+| Pain | Without Jingcha | With Jingcha |
+|---|---|---|
+| A call goes quiet | A spinner and a guess | A verdict with reasons: slow / hanging / stuck / silent / awaiting approval / error storm / memory leak |
+| One runaway call | Cancel the whole turn — collateral damage included | Stop that single call by callId, "stop stuck calls", or "stop all turns" (confirmation required) |
+| You want a post-mortem | Nothing recorded | One event per call — tool, argument preview, duration, result, error class — in events.jsonl |
+| Plugin overhead | Registering a tool eats context on every request | Nothing is registered by default: the model never sees it, and it costs 0 tokens |
+
+<a id="what-it-looks-like"></a>
+## 🖼️ What it looks like
+
+| Light | Dark |
+|---|---|
+| ![light](docs/assets/screenshot-light.png) | ![dark](docs/assets/screenshot-dark.png) |
+
+| Panel detail | Status capsule |
+|---|---|
+| ![panel](docs/assets/screenshot-panel-detail.png) | ![capsule](docs/assets/screenshot-capsule.png) |
+
+- **Capsule** — a status dot plus the verdict, or "pwsh 1m33s" while something runs. Drag it anywhere; the position is remembered.
+- **Panel** — four collapsible sections: verdict (with event-loop lag and call counters), in-flight calls (each with a ⛔ force-stop button), recent alerts, settings.
+- **Light colour** — derived client-side from call duration: green under the yellow threshold, yellow under the red one, red (with a breathing dot) beyond it.
+- **One palette** — capsule, panel, palette and toast all derive from a single base colour, and the text colour follows the base, so dark mode never shows white-on-white.
+
+<a id="quick-start"></a>
+## 🚀 Quick start
 
 ```powershell
-# official plugin channel (restart dsh afterwards)
+# Official plugin channel (restart dsh afterwards)
 dsh plugin --profile web add github:you233/dsh-jingcha
 
-# self-tests (zero dependencies, no dsh required)
+# Self-tests: zero dependencies, dsh does not need to be running
 node test/verify.mjs          # 121 checks
 node test/verify-client.mjs   #  90 checks (widget, DOM stubs)
 ```
 
-Prefer no pnpm? tools/install.ps1 creates a junction and edits the profile manifest with an automatic backup
-and one-command rollback. See [docs/SHARING.md](docs/SHARING.md).
+Prefer to skip pnpm? tools/install.ps1 creates a junction, edits the profile manifest, backs it up first and can roll the whole thing back. See [docs/SHARING.md](docs/SHARING.md) for install, uninstall and a pre-share safety checklist.
 
 <a id="features"></a>
 ## ✨ Features
 
-- **Observation** — read-only hooks on tools/pre-execute, tools/execute, tools/result;
-- **Verdicts** — slow / hanging / stuck / silent / awaiting-approval / error storm / plugin self-error;
-- **Force stop** — fuses an AbortController of its own (upstream cancellation semantics untouched) and registers it
-  already in pre-execute, so **nested sub-calls** can be stopped too; failures return a human-readable reason
-  instead of killing the parent by mistake;
-- **Widget** — draggable (position remembered), colour-graded by call duration, anomaly popups, hover-to-expand
-  truncated text (flicker-free), five-corner reset, unified light/dark palette, hide-and-find-back, Ctrl+Shift+J;
-- **HTTP API** — status / kill / stop / settings, loopback-only, Host allow-list, cross-site rejection, POST+JSON for mutations;
-- **Persistence** — atomic status.json snapshot + rotating events.jsonl (8 MB rotation).
+- **Observation** — read-only hooks on tools/pre-execute, tools/execute and tools/result; every monitoring path is wrapped in safe(), so an internal error can never damage the call it is watching.
+- **Verdicts** — slow, hanging, stuck, silent (an agent is running but nothing is streaming), awaiting approval, error storm, memory-leak warning, and the plugin's own errors.
+- **Force stop** — Jingcha fuses its own AbortController into exec.signal while leaving upstream cancellation semantics intact, and registers it already during pre-execute, so nested sub-calls (parent id plus a :ptc: suffix) can be stopped too. When it cannot stop something it says why — for example, it refuses to kill a parent call just because you aimed at a child.
+- **Widget** — draggable with remembered position, colour-graded by duration, anomaly popups on the right, hover-to-expand truncated text (flicker-free), five-corner reset, unified light/dark palette, hide-and-find-back, Ctrl+Shift+J shortcut.
+- **HTTP API** — status, kill, stop and settings endpoints; loopback only, Host allow-list, cross-site rejected, mutations require POST with JSON.
+- **Persistence** — an atomically replaced status.json snapshot plus an appended events.jsonl that rotates at 8 MB.
 
 <a id="verdicts"></a>
 ## 🧭 Verdicts (defaults)
 
 | Verdict | Trigger | Suggested action |
 |---|---|---|
-| slow | a call runs longer than 30s (slowCallMs) | check whether it is a legitimately long task |
-| hanging | in-flight longer than 2min (hangCallMs) | watch it, maybe stop it |
-| **stuck** | longer than 5min (stuckCallMs) **and** no progress | press "stop stuck calls" |
-| silent | an agent is running but nothing streamed for 90s | look at the model side |
-| awaiting approval | pre-execute blocked on approval for 20s | approve it — do not mistake it for a hang |
-| error storm | 3 consecutive failures | stop and read the error classes |
-| memory leak warning | RSS rises for 5 consecutive heartbeats and grows more than 10% (memoryLeakWindow / memoryLeakGrowth) | check for a real leak; raise the window/threshold for workloads that legitimately grow |
+| slow | a single call exceeds 30s (slowCallMs) | check whether it is a legitimately long task |
+| hanging | in flight for more than 2min (hangCallMs) | keep an eye on it, maybe stop it |
+| **stuck** | in flight for more than 5min (stuckCallMs) and no output in between | press "stop stuck calls" |
+| no output | an agent is running with nothing streamed for 90s (silenceMs) | look at the model side |
+| awaiting approval | pre-execute blocked on approval for 20s (approvalWarnMs) | approve it — do not read it as a hang |
+| error storm | 3 consecutive failures on one tool (errorStormCount) | stop and read the error classes |
+| memory leak warning | RSS rises for 5 consecutive heartbeats and grows more than 10% (memoryLeakWindow / memoryLeakGrowth) | confirm whether it is a real leak; raise the window or threshold when the workload legitimately grows |
+| plugin error | Jingcha itself threw | file a bug — it is designed never to break tool calls |
 
 <a id="configuration"></a>
 ## ⚙️ Configuration
 
-Everything lives in [cordis.patch.yml](cordis.patch.yml) with inline comments:
-dataDir · displayName · toolEnabled · slowCallMs / hangCallMs / stuckCallMs · silenceMs · approvalWarnMs ·
-autoKillAfterMs · memoryLeakWindow / memoryLeakGrowth · previewArgs / redactPreviews · apiToken.
+Every key lives in [cordis.patch.yml](cordis.patch.yml) with inline comments, and the machine-readable shape is in [docs/config.schema.json](docs/config.schema.json):
+
+dataDir · displayName · toolEnabled · slowCallMs / hangCallMs / stuckCallMs · silenceMs · lagWarnMs / lagStuckMs ·
+approvalWarnMs · errorStormCount / errorStormWindowMs · emptyResultBytes · heartbeatMs / statusEveryMs ·
+progressEveryMs / consoleProgressMs · maxLogBytes · autoKillAfterMs · memoryLeakWindow / memoryLeakGrowth ·
+previewArgs / redactPreviews / redactPatterns · apiToken
 
 <a id="security"></a>
 ## 🔒 Security
 
-- Loopback only, Host allow-list (DNS-rebinding safe), cross-site Origin/Sec-Fetch-Site rejected,
-  mutations require POST + application/json, optional shared token (apiToken);
-- No network access, no third-party dependencies, no dynamic code execution; the widget uses textContent only;
-- events.jsonl / status.json contain truncated argument previews with secret-ish fragments redacted;
-- Residual risk: loopback means "everyone on this machine" — set apiToken on multi-user boxes.
+- All four endpoints share one guard: loopback only, the Host header must be 127.0.0.1 / localhost / ::1 (this is what stops DNS rebinding), cross-site Origin and Sec-Fetch-Site are rejected, mutations require POST with application/json (that is what stops an img tag from killing a call), and an optional shared token (apiToken) can be required.
+- The plugin makes no network requests, pulls in no third-party code and evaluates nothing dynamically; the widget only ever assigns textContent, so there is no injection surface.
+- status.json and events.jsonl contain truncated argument previews with secret-looking fragments redacted — skim them before sharing, or set previewArgs: false.
+- Residual risk: loopback means "everyone on this machine". On a multi-user box, set apiToken.
 
-See [SECURITY.md](SECURITY.md).
+More detail in [SECURITY.md](SECURITY.md).
 
 <a id="zero-model-tokens"></a>
 ## 🪙 Zero model tokens
 
-By default no model-visible tool is registered (extras.tool is null in status.json) and neither the event stream
-nor the widget enters the model context. Enable toolEnabled only if you want to ask "where is it stuck?" from the
-session itself (cost: ~176 tokens per request for the tool description plus ~0.5k tokens per query).
+By default Jingcha registers no model-visible tool (extras.tool is null in status.json), and neither the event stream nor the widget is fed into the model context. Turn on toolEnabled only if you want to ask "where is it stuck?" from inside a session — that costs roughly 176 tokens per request for the tool description, plus about 0.5k tokens per query.
 
-<a id="how-it-hooks-in"></a>
-## 🧩 How it hooks in
+<a id="architecture-and-state-machine"></a>
+## 🏗️ Architecture and state machine
 
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has two Mermaid diagrams — a component/data-flow chart and the verdict state machine — plus the severity and destination of every reason kind and the six design trade-offs behind them.
+
+- Priority: stalled > erroring > degraded > busy / ok, so one stuck call is never buried under a pile of warnings.
+- Force-stop works because Jingcha swaps exec.signal for its own fused AbortController during pre-execute and restores it when the call ends.
+- Read-only first: monitoring failures are counted, never propagated.
+
+<a id="api-and-schemas"></a>
+## 🔌 API and schemas
+
+| Artifact | File | Purpose |
+|---|---|---|
+| OpenAPI 3.1 | **[docs/openapi.yaml](docs/openapi.yaml)** | The full contract of the four endpoints: guard rules, error codes, every response field |
+| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | The 28 config fields with types, defaults, ranges and descriptions |
+
+```http
+GET  /api/jingcha/status      # verdict + in-flight calls + recent alerts (same source as status.json)
+POST /api/jingcha/kill        # { "callId": "..." } or { "scope": "stalled|all" }
+POST /api/jingcha/stop        # cancel every running turn
+GET  /api/jingcha/settings    # read widget settings (plus defaults)
+POST /api/jingcha/settings    # write them (field allow-list, values clamped, then persisted)
 ```
-lib/core.js    pure logic: verdicts, counters, state machine (zero deps, unit-testable)
-lib/index.js   host wiring: tool pipeline, fused abort signal, HTTP routes, heartbeat
-lib/sink.js    persistence: atomic status.json + appended, rotating events.jsonl
-lib/client.js  browser widget (single-file bundle, no require)
-```
 
-- **Force stop**: in pre-execute the plugin installs its own AbortController and replaces exec.signal; when DSH
-  dispatches, it fuses the caller signal with ours — so upstream cancellation still works and we can abort on
-  demand. At the end of the call the original signal is restored and the registration removed;
-- **Widget colours** are computed client-side from call duration, while the verdict state travels separately;
-- Spec: [lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md).
+<a id="examples"></a>
+## 🧪 Examples
 
-<a id="extending"></a>
-## 🛠️ Extending
+Four zero-dependency scripts in [examples/](examples/), all runnable with node:
 
-[docs/EXTENDING.md](docs/EXTENDING.md) lists the minimal edits for the five common changes (new verdict rule,
-new route, new panel section, new setting, new language/colour scheme) — usually 2 to 6 places.
+| Script | What it does |
+|---|---|
+| [01-read-status.mjs](examples/01-read-status.mjs) | prints the verdict from status.json; exits 1 when the state is not ok/busy, so it drops straight into cron or CI |
+| [02-watch-http.mjs](examples/02-watch-http.mjs) | polls the HTTP endpoint and only prints when the verdict changes |
+| [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | lists in-flight calls and stops a chosen (or the longest) one — dry-run unless you pass --yes |
+| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | drives lib/core.js directly to build a verdict, showing how little is needed to extend it |
+
+<a id="glossary"></a>
+## 📔 Glossary
+
+Verdict, state, reason, finding, in-flight, stuck, silent, fused signal, nested sub-call, the ptc suffix and the rest are defined (Chinese and English side by side) in **[docs/GLOSSARY.md](docs/GLOSSARY.md)**.
+
+<a id="roadmap"></a>
+## 🗺️ Roadmap
+
+**[ROADMAP.md](ROADMAP.md)** — 0.5 (composable rules, per-session filtering, post-stop forensics), 0.6 (i18n, config validation, optional metrics export), 1.0 (single settings contract, observable swallowed failures). Explicitly out of scope: mutating tool calls, telemetry by default, hard-killing in-process loops, and pushing observations into the model context by default.
 
 <a id="faq"></a>
 ## ❓ FAQ
 
-- **It will not stop.** A same-process loop that ignores exec.signal cannot be killed hard (the plugin can only
-  abort the signal); subprocesses such as pwsh are really killed. For nested calls with only the parent alive the
-  plugin refuses explicitly instead of killing the parent;
-- **Can it break tool calls?** Every monitoring path is wrapped in safe(); exceptions are swallowed and counted in
-  pluginErrors, never affecting tool results;
-- **How large does the data get?** events.jsonl rotates at 8 MB keeping one previous file (~16 MB cap), status.json
-  is always a single snapshot.
+- **It will not stop.** A same-process loop that ignores exec.signal cannot be killed from outside — Jingcha can only abort the signal. Subprocesses such as pwsh really are terminated. For a nested call whose parent is still running, Jingcha refuses instead of killing the parent by mistake.
+- **Can it break my tool calls?** Every monitoring path sits inside safe(); failures are swallowed and counted in pluginErrors and never touch the result.
+- **How big does the data get?** events.jsonl rotates at 8 MB and keeps one previous file (about 16 MB total); status.json is always a single snapshot.
+- **Do I have to restart?** Changes to host-side code need a dsh restart; the widget alone is picked up by refreshing the page.
 
 <a id="docs"></a>
 ## 📚 Docs
 
 | File | Content |
 |---|---|
-| [docs/SHARING.md](docs/SHARING.md) | install for others / uninstall / pre-share safety checklist |
-| [docs/EXTENDING.md](docs/EXTENDING.md) | minimal edits for the five common changes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | data flow and verdict state machine (Mermaid) |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | terminology, Chinese and English |
+| [docs/openapi.yaml](docs/openapi.yaml) | OpenAPI 3.1 contract for the HTTP endpoints |
+| [docs/config.schema.json](docs/config.schema.json) | JSON Schema for the configuration |
+| [docs/SHARING.md](docs/SHARING.md) | install for others, uninstall, pre-share checklist |
+| [docs/EXTENDING.md](docs/EXTENDING.md) | the minimal edits behind the five common changes |
 | [docs/PUBLISHING.md](docs/PUBLISHING.md) | maintainer release flow |
+| [examples/](examples/) | four runnable, dependency-free examples |
 | [lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md) | widget specification and acceptance list |
+| [ROADMAP.md](ROADMAP.md) | where this is going, and what it will never do |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | community expectations |
 | [CHANGELOG.md](CHANGELOG.md) | version history |
 
 <a id="contributing"></a>
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Keep the three rules: observe only, keep host and widget settings in sync,
-never rebuild interactive controls during a poll.
+[CONTRIBUTING.md](CONTRIBUTING.md) lists three rules that keep this project safe to run (observe only, keep host and widget settings in sync, never rebuild interactive controls during a poll), the self-test commands, and a set of good-first-issue ideas. New contributors are welcome — issues and PRs both work.
 
 <a id="license"></a>
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before participating.
+
+---
+
+<a id="star-history"></a>
+## ⭐ Star history
+
+<a href="https://star-history.com/#you233/dsh-jingcha&Date">
+<img src="https://api.star-history.com/svg?repos=you233/dsh-jingcha&type=Date" alt="Star History Chart" width="70%" />
+</a>
+
+## 📣 Share
+
+<a href="https://twitter.com/intent/tweet?text=Jingcha%20for%20DeepSeek%20Harness%3A%20runtime%20verdicts%20and%20force-stop%20for%20tool%20calls&url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-X%2FTwitter-000000.svg" alt="Share on X" /></a>
+<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha"><img src="https://img.shields.io/badge/share-Telegram-2CA5E0.svg" alt="Share on Telegram" /></a>
+<a href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fyou233%2Fdsh-jingcha&t=Jingcha%20-%20runtime%20supervisor%20for%20DeepSeek%20Harness"><img src="https://img.shields.io/badge/share-Hacker%20News-FF6600.svg" alt="Share on Hacker News" /></a>

@@ -1,0 +1,34 @@
+name: ✨ 功能建议
+description: 想要新的判定规则 / 接口 / 挂件能力
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        小提示：加判定规则的成本很低（见 docs/EXTENDING.md），愿意的话直接在 PR 里带上实现会更快。
+  - type: textarea
+    id: pain
+    attributes:
+      label: 你想解决什么
+      description: 描述场景即可，不必先想实现
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你设想的做法（可选）
+      description: 判据是什么？阈值给谁调？命中后希望发生什么（只提示 / 能强停 / 自动动作）？
+    validations:
+      required: false
+  - type: dropdown
+    id: cost
+    attributes:
+      label: 是否接受会占用模型 token
+      description: 鲸察默认 0 token；任何让模型看见的能力都会改变这一点
+      options:
+        - 不要占 token（默认，纯本地）
+        - 可以可选开启（默认关闭）
+        - 无所谓
+    validations:
+      required: true
