@@ -6,9 +6,10 @@
 
 ```powershell
 # 三套自检（前两套零依赖，第三套也是 DOM 桩，不需要浏览器）
-node test/verify.mjs         # 121 项：判定逻辑 / 假 ctx 接线 / 路由栅栏 / 强停（含嵌套调用）
-node test/verify-client.mjs  #  90 项：挂件
-# 真 cordis 集成（需要 DSH 的 cordis 路径）
+node test/verify.mjs         # 179 项：判定逻辑 / 假 ctx 接线 / 路由栅栏 / 强停（含嵌套调用）
+node test/verify-client.mjs  # 111 项：挂件
+node test/verify-cordis.mjs  #  14 项（需设 DSH_CORDIS）
+# 真 cordis 集成：先把 DSH_CORDIS 指到 DSH 的 cordis 路径
 $env:DSH_CORDIS='<...>\node_modules\@deepseek-ai\cordis\lib\index.js'; node test/verify-cordis.mjs
 ```
 
@@ -36,9 +37,9 @@ $env:DSH_CORDIS='<...>\node_modules\@deepseek-ai\cordis\lib\index.js'; node test
 | 把空 catch 变成可观测 | lib/index.js、lib/client.js | ★ | 抽一个 noteSwallowed(kind, err)：计数 + 写 events.jsonl，别静默吞 |
 | 再加一个示例 | examples/ | ★ | 例如「监控子代理并在超时时打印」或「把 events.jsonl 转成 CSV」 |
 | 挂件给 memory-leak 一个专用展示 | lib/client.js | ★★ | 判定区加一行 RSS 趋势（从 runtime.memoryLeak 读，别新增请求） |
-| 文档计数自动化 | tools/、README | ★★ | 测试输出一份计数，README 里的「121 项」由脚本生成，杜绝漂移 |
+| 文档计数自动化 | tools/、README | ★★ | 测试输出一份计数，README 里的「179 项 / 111 项」由脚本生成，杜绝漂移 |
 | i18n 第一步：抽 core 的判定文案 | lib/core.js | ★★★ | 先把 verdict 的 text 抽成词表（zh），行为不变、测试照旧全绿 |
-| 判定规则可编排 | lib/core.js | ★★★ | 把 verdict 的长 if 链拆成规则数组（见 ROADMAP 0.5），允许外部注册规则 |
+| 给 examples 加一个 06：把 events.jsonl 转成 CSV | examples/ | ★ | 零依赖读 events.jsonl，输出 CSV（工具 / 耗时 / 结果 / 错误分类） |
 
 认领方式：在对应 issue 下留言「我来试试」，或直接开 PR（PR 模板里有检查清单）。
 不确定怎么做时，先把思路写在 issue 里，我们会给最小改动路径。

@@ -44,7 +44,7 @@ monitor.listRules();               // [{ id, title, source, enabled, escalate, f
 2. 新阈值加进 `DEFAULTS`，并同步 `cordis.patch.yml` 的 `config:` 与 `docs/config.schema.json`；
 3. `test/verify.mjs` 加场景；README 的判定表加一行。
 
-**兼容写法（0.5 之前）**：不改宿主、只把 core 当库用，自己喂事实拿判定——见 `examples/04a-old-way.mjs`。现在仍可用；但要一条**可开关、可注销、进事件流**的规则，走上面的注册 API。
+**兼容写法（0.5 之前）**：不改宿主、只把 core 当库用，自己喂事实拿判定——见 `examples/04-old-way.mjs`。现在仍可用；但要一条**可开关、可注销、进事件流**的规则，走上面的注册 API。
 
 ## 2. 加一个 HTTP 路由（挂件要新接口时）
 

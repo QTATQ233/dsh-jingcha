@@ -4,7 +4,7 @@
  *
  * 对照：
  *   本文件          = 新方式：monitor.registerRule({ id, evaluate })，可开关、可注销、进事件流；
- *   04a-old-way.mjs = 0.5 之前的兼容写法：直接 createMonitor 喂事实、拿 verdict。
+ *   04-old-way.mjs = 0.5 之前的兼容写法：直接 createMonitor 喂事实、拿 verdict。
  */
 import { createMonitor } from '../lib/core.js';
 

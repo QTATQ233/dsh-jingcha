@@ -107,6 +107,7 @@ Prefer to skip pnpm? tools/install.ps1 creates a junction, edits the profile man
 - **Observation** — read-only hooks on tools/pre-execute, tools/execute and tools/result; every monitoring path is wrapped in safe(), so an internal error can never damage the call it is watching.
 - **Verdicts** — slow, hanging, stuck, silent (an agent is running but nothing is streaming), awaiting approval, error storm, memory-leak warning, and the plugin's own errors.
 - **Force stop** — Jingcha fuses its own AbortController into exec.signal while leaving upstream cancellation semantics intact, and registers it already during pre-execute, so nested sub-calls (parent id plus a :ptc: suffix) can be stopped too. When it cannot stop something it says why — for example, it refuses to kill a parent call just because you aimed at a child.
+- **Force-stop forensics** — a successful force stop writes a `kill.forensics` event (tool / session / argument preview / duration / silent time / nested marker) that you can find in events.jsonl.
 - **Widget** — draggable with remembered position, colour-graded by duration, anomaly popups on the right, hover-to-expand truncated text (flicker-free), five-corner reset, unified light/dark palette, hide-and-find-back, Ctrl+Shift+J shortcut.
 - **HTTP API** — status, kill, stop and settings endpoints; loopback only, Host allow-list, cross-site rejected, mutations require POST with JSON.
 - **Persistence** — an atomically replaced status.json snapshot plus an appended events.jsonl that rotates at 8 MB.
@@ -142,9 +143,8 @@ previewArgs / redactPreviews / redactPatterns · apiToken · disabledRules
 
 - All four endpoints share one guard: loopback only, the Host header must be 127.0.0.1 / localhost / ::1 (this is what stops DNS rebinding), cross-site Origin and Sec-Fetch-Site are rejected, mutations require POST with application/json (that is what stops an img tag from killing a call), and an optional shared token (apiToken) can be required.
 - The plugin makes no network requests, pulls in no third-party code and evaluates nothing dynamically; the widget only ever assigns textContent, so there is no injection surface.
-- status.json and events.jsonl contain truncated argument previews with secret-looking fragments redacted — skim them before sharing, or set previewArgs: false.
 - Residual risk: loopback means "everyone on this machine". On a multi-user box, set apiToken.
-- The observation data is sensitive by nature: events.jsonl / status.json hold **argument previews** (120 chars max, redacted by default). Skim them before sharing, or set previewArgs: false.
+- The observation data is sensitive by nature: status.json / events.jsonl hold **tool argument previews** (120 chars max, truncated and redacted by default). Skim them before sharing, or set previewArgs: false.
 - Redaction deliberately over-masks (--password x, token=…, Bearer …, even -p 8080). Loosen it via redactPatterns if that bothers you.
 - Two independent security reviews (runtime + toolchain) for 0.4.3 found no high-severity issues; fixes include redaction coverage, sample clamping, constant-time token comparison and fail-closed publish checks (see CHANGELOG).
 
@@ -191,7 +191,7 @@ Five zero-dependency scripts in [examples/](examples/), all runnable with node:
 | [02-watch-http.mjs](examples/02-watch-http.mjs) | polls the HTTP endpoint and only prints when the verdict changes |
 | [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | lists in-flight calls and stops a chosen (or the longest) one — dry-run unless you pass --yes |
 | [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | registers a custom verdict rule via `registerRule` (enable/disable and escalation included) |
-| [04a-old-way.mjs](examples/04a-old-way.mjs) | the pre-0.5 way: drive `createMonitor` directly and read the verdict |
+| [04-old-way.mjs](examples/04-old-way.mjs) | the pre-0.5 way: drive `createMonitor` directly and read the verdict |
 
 <a id="glossary"></a>
 ## 📔 Glossary

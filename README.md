@@ -105,6 +105,7 @@ node test/verify-client.mjs   # 111 项（挂件，DOM 桩）
 - **判定**：慢 / 挂起 / 卡住 / 静默（有 agent 在跑却没有输出）/ 等待审批 / 错误风暴 / **内存泄漏预警** / 插件自身报错；
 - **强停**：融合一个属于鲸察的 AbortController（**上游取消语义不变**），并且**在 pre-execute 就登记** ——
   所以嵌套子调用（父 id 加 :ptc: 序号）也能停；停不掉时返回人话原因，绝不错杀父调用；
+- **强停取证卡**：强制停止成功时会落一条 kill.forensics 事件（工具/会话/参数摘要/耗时/静默时长/嵌套标记），可在 events.jsonl 里查。
 - **挂件**：可拖动、按调用时长分级变色、异常右侧弹提示、悬停省略号看全文（**不闪烁**）、五宫格复位、
   深浅色统一、隐藏后原位置可找回、Ctrl+Shift+J 快捷键；
 - **接口**：status / kill / stop / settings 四个端点，只监听回环 + Host 白名单 + 拒跨站来源 + 变更类只收 POST JSON；
@@ -152,9 +153,8 @@ node test/verify-client.mjs   # 111 项（挂件，DOM 桩）
   拒绝带 Origin 或 Sec-Fetch-Site: cross-site 的请求、**变更类接口只接受 POST + application/json**
   （挡 img 标签一发即杀与跨站表单）、可选 apiToken；
 - 插件**不联网、无第三方依赖、不做动态执行**；客户端全程 textContent（无 XSS 面）；
-- events.jsonl / status.json 含**工具参数摘要**（默认截断 120 字符并对敏感片段打码），分享前先看一眼，或用 previewArgs: false 关掉；
 - 残余风险：回环等于「本机全体」，同机其它账号/进程仍可访问 —— 多用户环境请设 apiToken。
-- 观测数据本身是敏感的：`events.jsonl` / `status.json` 含**参数摘要**（≤120 字、默认脱敏），分享前先看一眼，或用 `previewArgs: false` 关掉；
+- 观测数据本身是敏感的：`events.jsonl` / `status.json` 含**工具参数摘要**（≤120 字、默认截断并对敏感片段打码），分享前先看一眼，或用 `previewArgs: false` 关掉；
 - 脱敏默认会把 `--password x`、`token=…`、`Bearer …` 这类片段遮成 `[已脱敏]`，**过脱敏是故意的**（`-p 8080` 也会被遮），要放松就改 `redactPatterns`；
 - 0.4.3 独立安全审查（运行时 + 工具链两路）结论：无严重/高危；已修脱敏覆盖、采样越界、token 常量时间比较、发布自检同源降级等问题（见 CHANGELOG）。
 
@@ -236,7 +236,7 @@ POST /api/jingcha/settings    # 写挂件设置（字段白名单 + 数值夹紧
 | [02-watch-http.mjs](examples/02-watch-http.mjs) | 每 2 秒拉一次接口，只在判定变差时打印 |
 | [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | 列出在途调用并强停指定 / 最久的那个；**默认 dry-run** |
 | [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | 用 `registerRule` 注册一条自定义判定规则（含启用/停用与升级语义） |
-| [04a-old-way.mjs](examples/04a-old-way.mjs) | 0.5 之前的兼容写法：直接 `createMonitor` 喂事实、拿 verdict |
+| [04-old-way.mjs](examples/04-old-way.mjs) | 0.5 之前的兼容写法：直接 `createMonitor` 喂事实、拿 verdict |
 
 <a id="术语表"></a>
 ## 📔 术语表

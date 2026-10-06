@@ -38,7 +38,7 @@
 ## 执行
 
 骚扰或其它不可接受的行为，可通过 GitHub 私密渠道
-（https://github.com/QTATQ233/dsh-jingcha/security/advisories/new）或直接私信维护者报告。
+（https://github.com/QTATQ233/dsh-jingcha/security/advisories/new，即 SECURITY.md 里的「Security → Report a vulnerability」入口）或在 GitHub 上 @QTATQ233（仓库维护者）报告。
 所有投诉都会被及时、公正地审查与处理；社区领导者有义务尊重举报者的隐私与安全。
 
 ## 执行指南
