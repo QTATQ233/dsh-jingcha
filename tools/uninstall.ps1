@@ -61,7 +61,7 @@ $profileJsonPath = Join-Path $ProfileDir 'package.json'
 Info "profile: $ProfileDir | plugin: $packageName"
 
 # 1) remove the junction
-# junction 位置由包名推出：'@local/dsh-jingcha' -> <profile>\node_modules\@local\dsh-jingcha
+# Junction path is derived from the package name: '@local/dsh-jingcha' -> <profile>\node_modules\@local\dsh-jingcha
 $slash = $packageName.IndexOf('/')
 $scope = if ($packageName.StartsWith('@') -and $slash -gt 0) { $packageName.Substring(0, $slash) } else { $null }
 $leaf = if ($slash -gt 0) { $packageName.Substring($slash + 1) } else { $packageName }
@@ -72,7 +72,11 @@ $existing = Get-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
 if ($existing) {
   if ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint) {
     if ($DryRun) { Info "[dry-run] would delete link $linkPath" }
-    else { Remove-Item -LiteralPath $linkPath -Force -Recurse; Info "deleted link: $linkPath" }
+    else {
+      # Remove the link itself only (never recurse into the target).
+      & cmd.exe /c rmdir /q "$linkPath"
+      if (Test-Path -LiteralPath $linkPath) { Info "WARNING: failed to remove link: $linkPath" } else { Info "deleted link: $linkPath" }
+    }
   } else {
     Info "$linkPath is not a link; skipped (check manually)"
   }

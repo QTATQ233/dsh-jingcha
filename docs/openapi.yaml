@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 鲸察 HTTP 接口（dsh-jingcha）
-  version: 0.4.3
+  version: 0.5.0
   description: |
     给右下角挂件用的本机接口，也可以被你自己的脚本调用。
 
@@ -30,7 +30,13 @@ paths:
   /api/jingcha/status:
     get:
       tags: [status]
-      summary: 实时快照（与 status.json 同源）
+      summary: 实时快照（与 status.json 同源的紧凑载荷）
+      parameters:
+        - name: session
+          in: query
+          required: false
+          schema: { type: string, maxLength: 200 }
+          description: "只看这个会话的判定与在途调用（缺省或空串 = 全局）。响应里的 scope.sessionId 回显生效值；sessions 汇总始终全局；带过滤时 reasons 会标 scope=session|host。"
       responses:
         "200":
           description: 当前判定 + 运行计量 + 在途调用 + 最近告警
@@ -152,6 +158,7 @@ components:
         elapsedMs: { type: integer }
         growth: { type: number, description: memory-leak 专用：窗口内增幅比例 }
         window: { type: integer, description: memory-leak 专用：连续递增的心跳周期数 }
+        scope: { type: string, enum: [session, host], description: "仅当带 ?session= 过滤时出现：session = 该理由只属于这个会话；host = 宿主级理由（事件循环等）不受过滤影响" }
     Inflight:
       type: object
       properties:
@@ -171,12 +178,9 @@ components:
         text: { type: string }
     StatusResponse:
       type: object
+      description: 挂件每 2 秒拉一次的紧凑载荷（完整快照见 status.json；本接口不返回 ok / schema / pid）
       properties:
-        ok: { type: boolean, const: true }
-        schema: { type: string, const: jingcha/status@1 }
         generatedAt: { type: string, format: date-time }
-        pid: { type: integer }
-        uptimeMs: { type: integer }
         verdict:
           type: object
           properties:
@@ -184,25 +188,17 @@ components:
             label: { type: string }
             since: { type: string, format: date-time }
             reasons: { type: array, items: { $ref: "#/components/schemas/Reason" } }
+        scope:
+          type: object
+          description: "本次响应的会话过滤口径（?session= 生效时为该 id，否则 null）"
+          properties:
+            sessionId: { type: [string, "null"], description: 生效的会话 id；null = 全局 }
         runtime:
           type: object
           properties:
             eventLoopLagMs: { type: integer }
             maxLagMs: { type: integer }
             rssBytes: { type: integer }
-            heapUsedBytes: { type: integer }
-            memoryLeak:
-              type: object
-              properties:
-                active: { type: boolean }
-                growth: { type: number }
-                rising: { type: integer }
-                window: { type: integer }
-                threshold: { type: number }
-                samples: { type: integer }
-                fromRssBytes: { type: integer }
-                toRssBytes: { type: integer }
-                since: { type: string, format: date-time }
         work:
           type: object
           properties:
@@ -211,10 +207,51 @@ components:
             counters:
               type: object
               additionalProperties: { type: integer }
+            sessions:
+              type: array
+              description: "会话汇总（**始终全局**，不随 ?session= 收窄——挂件要靠它列出会话）"
+              items: { $ref: "#/components/schemas/SessionSummary" }
         findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
-        extras:
+        rules:
+          type: [array, "null"]
+          description: 规则表快照（等价 monitor.listRules()）；规则系统不可用时为 null
+          items: { $ref: "#/components/schemas/RuleInfo" }
+        thresholds:
           type: object
-          description: 宿主环境与接口自述（dataDir / tool / api / node / platform 等）
+          description: 当前生效的判定阈值（毫秒）
+          additionalProperties: { type: integer }
+        dataDir: { type: string, description: 数据目录（status.json / events.jsonl 所在） }
+        tool: { type: [string, "null"], description: 注册的查询工具名；toolEnabled=false 时为 null（0 token） }
+        capabilities:
+          type: object
+          description: 本实例支持的接口能力（给挂件做特性探测）
+          properties:
+            kill: { type: boolean }
+            stopTurns: { type: boolean }
+            autoKillAfterMs: { type: integer }
+            sessionFilter: { type: boolean, description: "支持 ?session= 会话过滤" }
+            ruleRegistry: { type: boolean, description: 支持第三方规则注册（registerRule / unregisterRule / setRuleEnabled / listRules） }
+    SessionSummary:
+      type: object
+      description: 会话汇总（work.sessions 的一项；按在途数 / agent 数排序）
+      properties:
+        sessionId: { type: string }
+        known: { type: boolean, description: false 表示调用没带会话 id（记为 (unknown)） }
+        inflight: { type: integer, description: 该会话在途工具调用数 }
+        runningAgents: { type: integer }
+        oldestMs: { type: integer, description: 该会话最久在途调用的耗时 }
+        oldestCallId: { type: [string, "null"] }
+        idleMs: { type: integer, description: 距该会话最近一次产出信号多久 }
+    RuleInfo:
+      type: object
+      description: 判定规则表的一项（等价 monitor.listRules()）
+      properties:
+        id: { type: string, examples: [memory-leak, error-storm] }
+        title: { type: string }
+        source: { type: string, description: "builtin（内置 8 条）或 custom（第三方注册）" }
+        enabled: { type: boolean, description: 是否参与判定（false = 被 disabledRules 关掉） }
+        escalate: { type: [string, "null"], description: 该规则命中时的升级目标（如 stall）；null = 不升级 }
+        failures: { type: integer, description: 该规则累计抛错次数（失败隔离的记账） }
     KillRequest:
       type: object
       properties:

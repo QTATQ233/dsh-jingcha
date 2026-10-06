@@ -13,8 +13,9 @@
  *   - 提交身份固定为 noreply 邮箱，不暴露真人邮箱；
  *   - 只改 package.json / CHANGELOG.md 与发布副本，绝不碰 lib/ 里的实现。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -43,10 +44,48 @@ function git(label, gitArgs, options = {}) {
   return run(label, "git", gitArgs, Object.assign({ cwd: publish }, options));
 }
 
-/** 只读的 git 查询（拿不到就返回空串，不因为管道失败而中断）。 */
+/**
+ * 只读的 git 查询。
+ * 注意：这里用**文件重定向**而不是 stdout 管道 —— 受限沙箱不允许 Node 开管道 stdio，
+ * spawnSync(..., {encoding:"utf8"}) 会直接 EPERM 并静默返回空串，让"有没有改动"判断永远为假。
+ * 读不到就中止，绝不靠猜。
+ */
 function gitOut(gitArgs) {
-  const result = spawnSync("git", gitArgs, { cwd: publish, encoding: "utf8" });
-  return (result.stdout || "").trim();
+  const outFile = path.join(os.tmpdir(), "jingcha-gitout-" + process.pid + ".txt");
+  const errFile = path.join(os.tmpdir(), "jingcha-giterr-" + process.pid + ".txt");
+  const fdOut = openSync(outFile, "w");
+  const fdErr = openSync(errFile, "w");
+  const result = spawnSync("git", gitArgs, { cwd: publish, stdio: ["ignore", fdOut, fdErr] });
+  closeSync(fdOut);
+  closeSync(fdErr);
+  const text = readFileSync(outFile, "utf8");
+  const errText = readFileSync(errFile, "utf8");
+  unlinkSync(outFile);
+  unlinkSync(errFile);
+  if (result.error) {
+    console.error("✗ 读不到 git 输出（" + result.error.message + "），发布管线不靠猜，已中止。");
+    process.exit(1);
+  }
+  if (errText.trim()) console.error("  git stderr: " + errText.trim().slice(0, 300));
+  return text.trim();
+}
+
+/**
+ * 推送：先试 SSH 别名（无 Token）；受限沙箱里 Git for Windows 的 sh.exe 起不来时，
+ * 自动回落到 HTTPS + GitHub App 会话 token（tools/gh-push.mjs）。成功的那条会被记住。
+ */
+let transport = "ssh";
+function pushRefs(refs, label) {
+  if (transport === "https") return pushHttps(refs, label);
+  const code = run("推送 " + label + "（SSH 别名）", "git", ["push", "origin", ...refs], { cwd: publish, allowFail: true });
+  if (code === 0) return 0;
+  console.log("\n（SSH 推送失败 —— 多半是沙箱里 sh.exe 起不来；改用 HTTPS + GitHub App 会话 token）");
+  transport = "https";
+  return pushHttps(refs, label);
+}
+function pushHttps(refs, label) {
+  return run("推送 " + label + "（HTTPS + GitHub App）", process.execPath,
+    ["--use-system-ca", path.join(root, "tools", "gh-push.mjs"), ...refs], { cwd: root });
 }
 
 console.log("鲸察发布管线 · " + (checkOnly ? "检查模式（不改文件、不推送）" : pushOnly ? "仅推送" : "完整发布 " + version));
@@ -105,8 +144,8 @@ if (gitOut(["remote", "get-url", "origin"]).indexOf("github-") < 0) {
   console.log("   git config core.sshCommand \"ssh -F C:/dsh-jingcha/.ssh/config\"");
   console.log("   （生成密钥与别名：powershell -File tools/setup-repo-key.ps1 -Repo <owner>/<repo> -Name <项目名>）");
 }
-git("推送 main", ["push", "origin", "main"]);
-if (!pushOnly) git("推送标签", ["push", "origin", "v" + version]);
+pushRefs(["main"], "main");
+if (!pushOnly) pushRefs(["v" + version], "v" + version);
 
 console.log("\n✓ 已推送。剩下三件只能网页做的事（我可以事后用公开 API 复核）：");
 console.log("   1) Release : https://github.com/<owner>/<repo>/releases/new?tag=v" + version);

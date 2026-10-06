@@ -1,9 +1,10 @@
 /**
- * 鲸察挂件（lib/client.js）· 无浏览器自检 v4
+ * 鲸察挂件（lib/client.js）· 无浏览器自检 v5
  * ============================================================================
  * 覆盖：形态/懒加载、阈值分级、拖动与立即持久化、五宫格复位、异常 toast、
  * 设置界面（阈值/滑块不重建 DOM/数字直填/主题三段/五宫格/面板高度）、
- * 主色色板（点外面才关、真正生效且不覆盖灯色）、主题跟随 DSH 界面、隐藏与找回、降级、清理。
+ * 主色色板（点外面才关、真正生效且不覆盖灯色）、主题跟随 DSH 界面、隐藏与找回、降级、清理、
+ * 迷你时间线（本地采样有界/空历史/单点/满 5 分钟/超上限裁剪/色块用状态色/悬停 title/折叠键）。
  * 跑法：node test/verify-client.mjs
  */
 
@@ -141,7 +142,7 @@ globalThis.document = documentStub;
 globalThis.fetch = fetchStub;
 try { Object.defineProperty(globalThis, 'location', { value: windowStub.location, configurable: true }); } catch (error) { /* ignore */ }
 
-console.log('== 鲸察挂件自检 v4 ==');
+console.log('== 鲸察挂件自检 v5 ==');
 const bundleUrl = new URL('../lib/client.js', import.meta.url).href;
 await import(bundleUrl);
 
@@ -182,6 +183,103 @@ check('久无产出的调用显示「静默」', (function () {
 })(), textAll(nodes.body_calls));
 check('胶囊显示 工具名 + 时长', textAll(nodes.text).indexOf('pwsh') >= 0 && textAll(nodes.text).indexOf('25s') >= 0, textAll(nodes.text));
 
+// ── 迷你时间线：客户端本地累积（最近 5 分钟 / 30 段）──────────────────────
+const tlPure = 1800000000000;                 // 纯函数用固定时钟，避免抖动
+check('时间线：窗口 5 分钟 · 30 段 · 采样上限 150（有界）',
+  it.TL_SLOTS === 30 && it.TL_SPAN_MS === 300000 && it.HISTORY_MAX === 150,
+  it.TL_SLOTS + ' / ' + it.TL_SPAN_MS + ' / ' + it.HISTORY_MAX);
+check('时间线：空历史 -> 30 段全是空档（没有色块）', (function () {
+  const buckets = it.bucketize([], tlPure, it.TL_SLOTS, it.TL_SPAN_MS);
+  return buckets.length === 30 && buckets.every((b) => b === null);
+})(), JSON.stringify(it.bucketize([], tlPure, it.TL_SLOTS, it.TL_SPAN_MS).filter(Boolean).length));
+check('时间线：单点只落在最新一段（靠右），级别是状态色', (function () {
+  const buckets = it.bucketize([{ at: tlPure, state: 'stalled', label: '疑似卡住', reasons: [] }], tlPure, it.TL_SLOTS, it.TL_SPAN_MS);
+  return Boolean(buckets[0]) && buckets[0].level === 'red' && buckets[0].count === 1 && buckets.filter(Boolean).length === 1 && buckets[1] === null;
+})(), JSON.stringify(it.bucketize([{ at: tlPure, state: 'stalled', reasons: [] }], tlPure, it.TL_SLOTS, it.TL_SPAN_MS)[0]));
+check('时间线：满 5 分钟 -> 30 段各一段位，窗口外的采样被丢弃', (function () {
+  const many = [];
+  for (let i = 0; i <= 30; i++) many.push({ at: tlPure - i * 10000, state: 'busy', label: '运行中', reasons: [] });
+  const buckets = it.bucketize(many, tlPure, it.TL_SLOTS, it.TL_SPAN_MS);
+  return buckets.filter(Boolean).length === 30 && buckets.every((b) => b && b.count === 1) && Boolean(buckets[29]) && buckets[29].level === 'green';
+})(), JSON.stringify(it.bucketize([{ at: tlPure - 300000, state: 'busy', reasons: [] }], tlPure, it.TL_SLOTS, it.TL_SPAN_MS).filter(Boolean).length));
+check('时间线：同一段里多个采样取最严重的那个', (function () {
+  const buckets = it.bucketize([
+    { at: tlPure - 2000, state: 'busy', label: '运行中', reasons: [] },
+    { at: tlPure - 6000, state: 'stalled', label: '疑似卡住', reasons: ['卡住了'] },
+  ], tlPure, it.TL_SLOTS, it.TL_SPAN_MS);
+  return Boolean(buckets[0]) && buckets[0].level === 'red' && buckets[0].count === 2 && buckets[0].reasons[0] === '卡住了';
+})(), JSON.stringify(it.bucketize([{ at: tlPure - 6000, state: 'stalled', reasons: [] }, { at: tlPure - 2000, state: 'busy', reasons: [] }], tlPure, it.TL_SLOTS, it.TL_SPAN_MS)[0]));
+check('时间线：超过上限裁掉最老采样（内存有界）', (function () {
+  it.history().length = 0;
+  for (let i = 0; i < it.HISTORY_MAX + 30; i++) it.recordSample(baseStatus(), tlPure + i * 2000);
+  const kept = it.history();
+  return kept.length === it.HISTORY_MAX && kept[0].at === tlPure + 30 * 2000 && kept[kept.length - 1].at === tlPure + (it.HISTORY_MAX + 29) * 2000;
+})(), it.history().length + ' 点');
+check('时间线：理由压缩有界（最多 4 条、每条 <= 90 字）', (function () {
+  const reasons = it.sampleReasons({ reasons: new Array(12).fill(0).map((zero, i) => ({ kind: 'k' + i, text: 'x'.repeat(400) })) });
+  return reasons.length === 4 && reasons.every((text) => text.length <= 90);
+})(), String(it.sampleReasons({ reasons: [{ text: 'x'.repeat(400) }] })[0].length));
+
+// 渲染：色块只用状态色（LEVEL_COLOR），空档交给弱色；悬停 title 带时间与理由
+it.history().length = 0;
+const tlBase = Date.now();
+[[30000, 'erroring', '出错'], [60000, 'stalled', '疑似卡住'], [90000, 'degraded', '偏慢'], [120000, 'busy', '运行中'], [150000, 'ok', '正常']]
+  .forEach((pair) => it.recordSample({ verdict: { state: pair[1], label: pair[2], reasons: [{ kind: 'tool-hang', severity: 'warn', text: '理由-' + pair[1] }] } }, tlBase - pair[0]));
+statusReply = baseStatus({ verdict: { state: 'ok', label: '正常', reasons: [] } });
+await it.poll();
+const tlSlots = () => find(nodes.body_timeline, (n) => n.className && n.className.indexOf('jingcha-tl-slot') >= 0);
+const slotFor = (ageMs) => tlSlots()[it.TL_SLOTS - 1 - Math.floor(ageMs / (it.TL_SPAN_MS / it.TL_SLOTS))];
+check('时间线：渲染出 30 个色块（5 分钟 / 10 秒一段）', tlSlots().length === 30, String(tlSlots().length));
+check('时间线：色块用状态色（erroring/stalled/degraded/busy/ok 各就各位）',
+  String(slotFor(30000).style['--j-dot']) === it.LEVEL_COLOR.orange &&
+  String(slotFor(60000).style['--j-dot']) === it.LEVEL_COLOR.red &&
+  String(slotFor(90000).style['--j-dot']) === it.LEVEL_COLOR.yellow &&
+  String(slotFor(120000).style['--j-dot']) === it.LEVEL_COLOR.green &&
+  String(slotFor(150000).style['--j-dot']) === it.LEVEL_COLOR.idle,
+  [30000, 60000, 90000, 120000, 150000].map((age) => String(slotFor(age).style['--j-dot'])).join(' / '));
+check('时间线：色块的 data-level 就是判定级别',
+  slotFor(60000).getAttribute('data-level') === 'red' && slotFor(30000).getAttribute('data-level') === 'orange' && slotFor(150000).getAttribute('data-level') === 'idle',
+  [30000, 60000, 150000].map((age) => String(slotFor(age).getAttribute('data-level'))).join(' / '));
+check('时间线：空档用弱色（不写内联状态色，交给 CSS 的 --j-track）', (function () {
+  const empty = tlSlots()[0];
+  return empty.className.indexOf('jingcha-tl-empty') >= 0 && empty.style['--j-dot'] === undefined && empty.getAttribute('data-level') === 'empty';
+})(), tlSlots()[0].className + ' / ' + String(tlSlots()[0].style['--j-dot']));
+check('时间线：悬停 title 有时间 + 判定 + 判定理由', (function () {
+  const title = String(slotFor(60000).title);
+  return /\d{1,2}:\d{2}:\d{2}/.test(title) && title.indexOf('疑似卡住') >= 0 && title.indexOf('理由-stalled') >= 0;
+})(), String(slotFor(60000).title));
+check('时间线：空档也有 title（时间 + 空档）', (function () {
+  const title = String(tlSlots()[0].title);
+  return /\d{1,2}:\d{2}:\d{2}/.test(title) && title.indexOf('空档') >= 0;
+})(), String(tlSlots()[0].title));
+check('时间线：分区标题带占用段数、刻度轴三段（前 / 前 / 现在）', (function () {
+  const head = textAll(nodes.head_timeline);
+  const axis = find(nodes.body_timeline, (n) => n.className === 'jingcha-tl-axis')[0];
+  return head.indexOf(it.STR.timeline) === 0 && head.indexOf('/' + it.TL_SLOTS) >= 0 && Boolean(axis) && axis.children.length === 3 &&
+    textAll(axis).indexOf(it.STR.tlBefore) >= 0 && textAll(axis).indexOf(it.STR.tlNow) >= 0;
+})(), textAll(nodes.head_timeline) + ' | ' + textAll(find(nodes.body_timeline, (n) => n.className === 'jingcha-tl-axis')[0]));
+const tlBefore = slotFor(150000);
+statusReply = baseStatus({ verdict: { state: 'stalled', label: '疑似卡住', reasons: [] } });
+await it.poll();
+check('时间线：轮询只改色与 title，不重建色块 DOM（悬停不闪）', tlSlots()[14] === tlBefore && tlSlots().length === 30, String(tlSlots()[14] === tlBefore));
+check('时间线：轮询采样落在最新一段并上色', String(slotFor(0).style['--j-dot']) === it.LEVEL_COLOR.red, String(slotFor(0).style['--j-dot']));
+check('时间线：折叠键注册进 LOCAL_DEFAULTS.fold / sanitizeLocal',
+  it.LOCAL_DEFAULTS.fold.timeline === false && it.sanitizeLocal({ fold: { timeline: true } }).fold.timeline === true,
+  JSON.stringify(it.sanitizeLocal({ fold: { timeline: true } }).fold));
+nodes.head_timeline.onclick();
+check('时间线：点标题能折叠', nodes.sec_timeline.className.indexOf('jingcha-folded') >= 0, nodes.sec_timeline.className);
+nodes.head_timeline.onclick();
+check('时间线：再点一次展开', nodes.sec_timeline.className.indexOf('jingcha-folded') < 0, nodes.sec_timeline.className);
+check('时间线：清空历史 -> 30 段全部回到空档', (function () {
+  it.history().length = 0;
+  it.renderTimeline();
+  const slots = tlSlots();
+  return slots.length === 30 && slots.every((slot) => slot.getAttribute('data-level') === 'empty' && slot.className.indexOf('jingcha-tl-empty') >= 0);
+})(), tlSlots().filter((slot) => slot.getAttribute('data-level') === 'empty').length + ' 段空档');
+const tlPaths = Array.from(new Set(calls.map((call) => call.url)));
+check('时间线：只用挂件原有的 4 条接口（数据全靠客户端本地累积，没新增宿主接口）',
+  tlPaths.length > 0 && tlPaths.every((url) => ['/api/jingcha/status', '/api/jingcha/kill', '/api/jingcha/stop', '/api/jingcha/settings'].indexOf(url) >= 0),
+  tlPaths.join(','));
 // ── 悬停看全文（省略号 -> 停一会儿弹完整小框）─────────────────────────────
 statusReply = baseStatus({ work: { inflight: [{ callId: 'call_tip', tool: 'pwsh', elapsedMs: 3000, phase: 'run', preview: 'command=Get-ChildItem -Recurse -Force C:\\very\\long\\path | Where-Object { $_.Length -gt 1MB }' }], runningAgents: 1, counters: {} } });
 await it.poll();

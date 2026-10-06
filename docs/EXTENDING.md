@@ -3,14 +3,48 @@
 鲸察刻意做成"四个面 + 一个纯逻辑核"：`lib/core.js`（纯逻辑，零依赖、可单测）· `lib/index.js`（宿主接线）· `lib/sink.js`（落盘）· `lib/client.js`（浏览器挂件）。
 下面是最常见的五类改动，按"改哪几处"给出最小清单（行号会漂，函数名不会）。
 
-## 1. 加一条判定规则（例如"同一工具连续失败 N 次"之外的新模式）
+## 1. 加一条判定规则
 
-1. `lib/core.js` 的 `DEFAULTS`（阈值 + 开关）加字段；
-2. `lib/core.js` 的 `verdict()`：在理由链里加分支，`reasons.push({ kind, severity, ... })`；
-3. `lib/index.js` 的 `statusPayload()`：需要暴露给挂件就加进 payload；
-4. `cordis.patch.yml` 的 `config:` 里同步默认值（用户可改）；
-5. `test/verify.mjs` 加一个场景（构造 monitor → 断言 state/label/reasons）；
-6. README 的判定表加一行。
+**推荐：用注册 API，不改 core。** `createMonitor()` 返回的 monitor 上有四个扩展点：
+
+- `registerRule({ id, title, evaluate, escalate? }, { replace? })` —— 注册一条规则，返回**取消注册函数**；契约不合返回 `null`，id 重复默认拒绝（`replace: true` 才覆盖）；
+- `unregisterRule(id)` —— 注销；`setRuleEnabled(id, on)` —— 运行期开关（内置 8 条也能关）；
+- `listRules()` —— 规则清单（id / title / source / enabled / escalate / failures）。
+
+`evaluate(ctx)` 拿到的是只读事实视图（`inflight` / `oldestCall` / `runningAgents` / `agents` / `lag` / `memoryLeak` / `idleMs` / `activity` / `stats` / `errorEvents` / `findings` / `counters` / `cfg` / `helpers`）。返回一条理由、一组理由，或 `null` 表示不命中。最小示例：
+
+```js
+import { createMonitor } from '../lib/core.js';
+
+const monitor = createMonitor();
+monitor.registerRule({
+  id: 'long-shell',
+  title: 'shell 调用超过 4 分钟',
+  escalate: 'stall',                       // 命中即把状态升到 stalled
+  evaluate(ctx) {
+    return ctx.inflight
+      .filter((c) => c.tool === 'pwsh' && c.elapsedMs >= 4 * 60_000)
+      .map((c) => ({
+        kind: 'shell-slow', severity: 'warn', callId: c.callId, elapsedMs: c.elapsedMs,
+        text: 'pwsh 已跑 ' + ctx.helpers.formatDuration(c.elapsedMs),
+      }));
+  },
+});
+
+monitor.verdict().reasons;         // 命中的理由在这里
+monitor.setRuleEnabled('long-shell', false);
+monitor.listRules();               // [{ id, title, source, enabled, escalate, failures }, ...]
+```
+
+理由会被规范化：`severity` 不在白名单时按 `warn` 兜底，`kind` 缺省取规则 id；第三方规则返回 `severity: 'critical'` 默认按 bug 升级（规则声明 `escalate: null` 可关掉）。**单条规则抛错只记账**（`listRules()` 的 `failures` + `plugin.error` 事件，同一规则 5 分钟最多报一次），不影响其它规则与判定。
+
+要改内置规则本身，才动 core：
+
+1. `lib/core.js` 的 `BUILTIN_RULES` 加一条（照现有 8 条的写法 `{ id, title, source: 'builtin', evaluate(ctx) }`）；
+2. 新阈值加进 `DEFAULTS`，并同步 `cordis.patch.yml` 的 `config:` 与 `docs/config.schema.json`；
+3. `test/verify.mjs` 加场景；README 的判定表加一行。
+
+**兼容写法（0.5 之前）**：不改宿主、只把 core 当库用，自己喂事实拿判定——见 `examples/04a-old-way.mjs`。现在仍可用；但要一条**可开关、可注销、进事件流**的规则，走上面的注册 API。
 
 ## 2. 加一个 HTTP 路由（挂件要新接口时）
 

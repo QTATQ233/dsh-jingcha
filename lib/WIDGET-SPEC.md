@@ -93,7 +93,32 @@ settings 字段（宿主会夹紧取值，客户端仍应先自行校验）：
 - 代码内自测友好：把纯逻辑（选颜色、夹紧设置、算时长文案）拆成小函数并挂在 apply 返回的 teardown 之外暴露给测试（例如 window.__jingchaInternals = {...}，仅在 factory 作用域内赋值，便于 Node 桩测试）。
 - 写 lib/WIDGET-NOTES.md：字符串表位置、设置字段、已知取舍、无法在无浏览器下验证的部分。
 
-## 5. 环境
+## 5. 时间线（0.5 新增）
+
+面板里一条最近 **5 分钟**的判定时间线，纯客户端本地累积（不新增宿主接口）：
+
+- **窗口 / 分段**：`TL_SPAN_MS = 300000`（5 分钟）、`TL_SLOTS = 30`（每段 10 秒），色块从旧到新排列，最右是「现在」；
+- **本地采样有界**：每次轮询记一条 `{ at, level, reasons }`，历史上限 `HISTORY_MAX = 150`，超上限从头部裁掉最老；理由最多留 `TL_REASON_MAX = 4` 条、每条 `TL_TEXT_MAX = 90` 字（超出截断加省略号）；
+- **状态色**：`LEVEL_COLOR` 给 green / yellow / orange / red / idle / off 各一色；同一段里多个采样按 `LEVEL_RANK` 取**最严重**的一个；空档不写内联色，交给 CSS 变量 `--j-track`；
+- **悬停 title**：每段 `title` = 时间 + 判定 + 判定理由（空档也写「时间 + 空档」）；分区标题带「采样数 / 上限」与「占用段数 / 30」，以及三段刻度轴（前 / 前 / 现在）；
+- **可折叠**：点 `head_timeline` 折叠 / 展开，键 `timeline` 进 `LOCAL_DEFAULTS.fold` 与 `sanitizeLocal()`；
+- **轮询只改色与 title，不重建色块 DOM**（否则悬停会闪、折叠状态会丢——与「轮询里不要重建交互控件」同一个坑）。
+
+验收断言（`test/verify-client.mjs`，共 15+ 条）：
+
+- 窗口与分段：`TL_SPAN_MS` 是 5 分钟、渲染出 30 个 `.jingcha-tl-slot`；
+- 空历史：30 段全是空档，空档不写内联状态色（`data-level` 不设）；
+- 单点：只落在最新一段（靠右），级别是状态色；
+- 满窗口：30 段各一段位，窗口外的采样被丢弃；同一段多个采样取最严重的那个；
+- 有界：超过 `HISTORY_MAX` 裁掉最老；理由压缩到 4 条 × 90 字；
+- 上色：色块 `data-level` 等于判定级别，`--j-dot` 用 `LEVEL_COLOR`；
+- 悬停：`title` 含时间 + 判定 + 理由，空档也有 title；
+- 轮询：只改色与 title，`tlSlots()[14]` 的引用不变（没重建 DOM），新采样落在最新一段；
+- 折叠：点标题加 `jingcha-folded`、再点去掉；`fold.timeline` 进 `LOCAL_DEFAULTS` / `sanitizeLocal()`；
+- 清空历史：30 段全部回到空档；
+- 只用挂件原有的 4 条接口（数据全在客户端累积，没新增宿主接口）。
+
+## 6. 环境
 
 Windows + PowerShell 7 + Node 24（任何目录都能跑；数据目录默认 %DSH_HOME%\data\dsh-jingcha）。
 写文件用 UTF-8 无 BOM；命令用 pwsh；不要重启 dsh、不要动 profile、不要改宿主侧文件（lib/core.js、lib/index.js、lib/sink.js、cordis.patch.yml、package.json）。

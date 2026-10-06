@@ -93,6 +93,21 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 # pick up backups that belong to the SAME profile (never a dry-run/fake-profile backup).
 $profileTag = ($ProfileDir -replace '[:\\/]', '_')
 $backupPath = Join-Path $backupDir "profile-$profileTag-package-$stamp.json"
+# Keep the backup directory from growing without bound: when this profile already has
+# more than 10 backups, delete the oldest ones (the newest 10 are kept).
+if (Test-Path $backupDir) {
+  $oldBackups = @(Get-ChildItem -LiteralPath $backupDir -Filter "profile-$profileTag-package-*.json" -File -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending)
+  if ($oldBackups.Count -gt 10) {
+    $victims = @($oldBackups | Select-Object -Skip 10)
+    if ($DryRun) {
+      Info ("[dry-run] would prune " + $victims.Count + " old backup(s), keeping the newest 10")
+    } else {
+      foreach ($v in $victims) { Remove-Item -LiteralPath $v.FullName -Force -ErrorAction SilentlyContinue }
+      Info ("pruned " + $victims.Count + " old backup(s), keeping the newest 10")
+    }
+  }
+}
 if ($DryRun) {
   Info "[dry-run] would back up to $backupPath"
 } else {
@@ -141,7 +156,7 @@ if ($changed.Count -eq 0) {
 }
 
 # -- 3. create the junction -------------------------------------------------
-# junction 位置由包名推出：'@local/dsh-jingcha' -> <profile>\node_modules\@local\dsh-jingcha
+# Junction path is derived from the package name: '@local/dsh-jingcha' -> <profile>\node_modules\@local\dsh-jingcha
 $slash = $packageName.IndexOf('/')
 $scope = if ($packageName.StartsWith('@') -and $slash -gt 0) { $packageName.Substring(0, $slash) } else { $null }
 $leaf = if ($slash -gt 0) { $packageName.Substring($slash + 1) } else { $packageName }
@@ -154,7 +169,13 @@ $existing = Get-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
 if ($existing) {
   if ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint) {
     if ($DryRun) { Info "[dry-run] would replace existing link $linkPath" }
-    else { Remove-Item -LiteralPath $linkPath -Force -Recurse; Info "removed old link: $linkPath" }
+    else {
+      # Remove the link itself only (never recurse into the target): cmd rmdir drops a
+      # junction/reparse point and leaves the linked directory untouched.
+      & cmd.exe /c rmdir /q "$linkPath"
+      if (Test-Path -LiteralPath $linkPath) { Fail "failed to remove old link: $linkPath" }
+      Info "removed old link: $linkPath"
+    }
   } else {
     Fail "$linkPath exists and is NOT a link (real file/directory); resolve it manually first"
   }

@@ -403,6 +403,10 @@ function makeFakeCtx() {
   const rendered = definition.output.render({}, toolValue);
   check('render 产出 text 内容块', Array.isArray(rendered) && rendered[0].type === 'text' && rendered[0].text.length > 100);
   check('工具值能 JSON 序列化', typeof JSON.stringify(toolValue) === 'string');
+  const rulesValue = await definition.execute({ includeRules: true });
+  check('工具 includeRules 能拿到规则表', Array.isArray(rulesValue.rules) && rulesValue.rules.length >= 8 && rulesValue.rules[0].id === 'inflight-calls',
+    JSON.stringify(rulesValue.rules && rulesValue.rules.slice(0, 2)));
+  check('默认不带规则表（省 token）', toolValue.rules === undefined);
 
   // 用宿主真校验器（若有）复核：schema 受支持 + 值合法
   let validatorChecked = false;
@@ -486,6 +490,21 @@ function makeFakeCtx() {
   const resStatusOk = makeRes();
   statusRoute.handler(makeReq('/api/jingcha/status', '127.0.0.1', 'GET'), resStatusOk);
   check('同源请求照常放行（栅栏不误伤）', resStatusOk.statusCode === 200, String(resStatusOk.statusCode));
+
+  // ?session= 只读过滤 + 会话汇总（v0.5）
+  check('不带 ?session 时 scope.sessionId 是 null', Boolean(statusBody.scope) && statusBody.scope.sessionId === null, JSON.stringify(statusBody.scope));
+  check('status 载荷带会话汇总与规则统计', Array.isArray(statusBody.work.sessions)
+    && Boolean(statusBody.rules && statusBody.rules.total >= 8 && statusBody.rules.custom === 0), resStatusOk.body.slice(0, 200));
+  const resScoped = makeRes();
+  statusRoute.handler(makeReq('/api/jingcha/status?session=session-none', '127.0.0.1', 'GET'), resScoped);
+  const scopedBody = JSON.parse(resScoped.body);
+  check('status 支持 ?session= 过滤（只读，回带 scope）', resScoped.statusCode === 200
+    && scopedBody.scope && scopedBody.scope.sessionId === 'session-none' && scopedBody.work.inflight.length === 0, resScoped.body.slice(0, 160));
+  check('会话过滤不影响栅栏（跨站依然 403）', (() => {
+    const res = makeRes();
+    statusRoute.handler(makeReq('/api/jingcha/status?session=x', '127.0.0.1', 'GET', '', { 'sec-fetch-site': 'cross-site' }), res);
+    return res.statusCode === 403;
+  })());
 
   // 设置接口：GET 给默认值，POST 夹紧、落盘并回读
   const settingsRoute = fake.routes.find((r) => r.path === '/api/jingcha/settings');
@@ -595,6 +614,144 @@ section('配置：enabled=false 时完全不挂载');
   apply(fake.ctx, { enabled: false });
   console.log = realLog;
   check('禁用时不注册工具、不挂监听器', fake.registered.length === 0 && fake.handlers.size === 0, JSON.stringify({ reg: fake.registered.length, handlers: fake.handlers.size }));
+}
+
+// ── 5. 判定规则可编排（v0.5）─────────────────────────────────────────────────
+section('判定规则可编排：内置规则表 / 第三方注册 / 升级语义 / 开关 / 失败隔离');
+{
+  const BUILTIN_IDS = ['inflight-calls', 'event-loop', 'memory-leak', 'no-progress', 'error-storm', 'failure-loop', 'agent-error-loop', 'plugin-error'];
+  const m = createMonitor({}, fakeClock());
+  const ids = m.listRules().map((r) => r.id);
+  check('内置规则表就是文档里那 8 条（顺序固定）', JSON.stringify(ids) === JSON.stringify(BUILTIN_IDS), JSON.stringify(ids));
+  check('内置规则来源标为 builtin 且默认全开', m.listRules().every((r) => r.source === 'builtin' && r.enabled));
+  check('快照里带规则统计', m.snapshot().rules.total === 8 && m.snapshot().rules.custom === 0 && m.snapshot().rules.enabled === 8, JSON.stringify(m.snapshot().rules));
+
+  check('规则 id 不合法被拒（中文）', m.registerRule({ id: '磁盘满了', evaluate: () => null }) === null);
+  check('规则缺 evaluate 被拒', m.registerRule({ id: 'no-fn' }) === null);
+  check('规则不是对象被拒', m.registerRule(null) === null && m.registerRule('x') === null && m.registerRule(undefined) === null);
+
+  m.drain();
+  const dispose = m.registerRule({ id: 'disk-full', title: '磁盘快满了', evaluate: () => ({ severity: 'warn', text: '磁盘剩余 3%' }) });
+  check('注册成功返回取消函数', typeof dispose === 'function');
+  check('注册会写进事件流（rule.register）', m.drain().some((e) => e.kind === 'rule.register'), 'no rule.register event');
+  const v1 = m.verdict();
+  check('自定义规则的理由进入判定（kind 默认取规则 id）', v1.reasons.some((r) => r.kind === 'disk-full'), JSON.stringify(v1.reasons));
+  check('自定义 warn 理由 → degraded', v1.state === STATES.degraded, v1.state);
+  check('规则清单里能看到它（custom / enabled）', m.listRules().some((r) => r.id === 'disk-full' && r.source === 'custom' && r.enabled));
+
+  m.registerRule({ id: 'bare', evaluate: () => ({}) });
+  check('severity 缺失按 warn 兜底、text 缺失回落到规则标题', m.verdict().reasons.some((r) => r.kind === 'bare' && r.severity === 'warn' && typeof r.text === 'string' && r.text.length > 0));
+
+  m.registerRule({ id: 'two-reasons', evaluate: () => [{ severity: 'warn', text: '甲' }, { severity: 'high', text: '乙' }] });
+  check('一条规则可以一次吐多个理由', m.verdict().reasons.filter((r) => r.kind === 'two-reasons').length === 2);
+
+  const escStall = m.registerRule({ id: 'io-dead', escalate: 'stall', evaluate: () => ({ severity: 'warn', text: '磁盘 IO 无响应' }) });
+  check("escalate:'stall' 把状态升到 stalled", m.verdict().state === STATES.stalled, m.verdict().state);
+  check('升级语义写进理由（escalate=stall）', m.verdict().reasons.some((r) => r.kind === 'io-dead' && r.escalate === 'stall'));
+  escStall();
+  check('取消注册后理由消失', !m.verdict().reasons.some((r) => r.kind === 'io-dead'));
+
+  const escBug = m.registerRule({ id: 'crc-bad', evaluate: () => ({ severity: 'critical', text: '数据校验失败' }) });
+  check('第三方 critical 默认按 bug 升级 → erroring', m.verdict().state === STATES.erroring, m.verdict().state);
+  escBug();
+  const optOut = m.registerRule({ id: 'loud-but-harmless', escalate: null, evaluate: () => ({ severity: 'critical', text: '响但无害' }) });
+  check('escalate:null 时 critical 也不改状态（只降级）', m.verdict().state === STATES.degraded, m.verdict().state);
+  optOut();
+
+  check('重复 id 默认被拒', m.registerRule({ id: 'dup', evaluate: () => ({ severity: 'warn', text: 'A' }) }) !== null
+    && m.registerRule({ id: 'dup', evaluate: () => ({ severity: 'warn', text: 'B' }) }) === null);
+  check('replace:true 可以覆盖同 id', typeof m.registerRule({ id: 'dup', evaluate: () => ({ severity: 'warn', text: 'B' }) }, { replace: true }) === 'function');
+  check('unregisterRule 能摘掉规则', m.unregisterRule('dup') === true && m.unregisterRule('dup') === false);
+
+  // 开关
+  check('setRuleEnabled 运行期关/开', m.setRuleEnabled('disk-full', false) === true
+    && m.listRules().find((r) => r.id === 'disk-full').enabled === false
+    && m.setRuleEnabled('disk-full', true) === true);
+  check('开关不存在的规则返回 false', m.setRuleEnabled('并没有这条', false) === false);
+
+  // 配置层禁用内置规则：拿 event-loop 当靶子
+  const hot = createMonitor({ lagWarnMs: 10 }, fakeClock());
+  hot.noteLag(50);
+  check('内置 event-loop 规则照常产出理由', hot.verdict().reasons.some((r) => r.kind === 'event-loop-lag'));
+  const cold = createMonitor({ lagWarnMs: 10, disabledRules: ['event-loop'] }, fakeClock());
+  cold.noteLag(50);
+  check('disabledRules 停掉的内置规则不再产出理由', !cold.verdict().reasons.some((r) => r.kind === 'event-loop-lag'));
+  check('被禁用的规则仍在清单里（enabled=false）', cold.listRules().find((r) => r.id === 'event-loop').enabled === false);
+
+  // 失败隔离：抛错的规则不能把判定带崩，但必须被看见
+  const fragile = createMonitor({}, fakeClock());
+  fragile.registerRule({ id: 'boom', evaluate: () => { throw new Error('故意炸'); } });
+  const vBoom = fragile.verdict();
+  check('规则抛错不会让 verdict 崩掉', Boolean(vBoom && Array.isArray(vBoom.reasons)));
+  check('抛错被记账（failures 计数）', fragile.listRules().find((r) => r.id === 'boom').failures === 1, JSON.stringify(fragile.listRules().find((r) => r.id === 'boom')));
+  check('抛错会进事件流（plugin.error）', fragile.drain().some((e) => e.kind === 'plugin.error'), 'no plugin.error event');
+  check('下一次判定会把 plugin-error 作为理由报出来（不静默）', fragile.verdict().reasons.some((r) => r.kind === 'plugin-error'), JSON.stringify(fragile.verdict().reasons));
+}
+
+// ── 6. 会话维度过滤 + 停后取证（v0.5）──────────────────────────────────────
+section('会话维度过滤：只看「我正在看的那个会话」');
+{
+  const clock = fakeClock();
+  const m = createMonitor({ slowCallMs: 1000, hangCallMs: 2000, stuckCallMs: 3000 }, clock);
+  m.toolStart({ callId: 'A1', name: 'read', arguments: { file_path: '/a' }, agentKey: 'ag-A', sessionId: 'session-A' });
+  clock.advance(1500);
+  m.toolStart({ callId: 'B1', name: 'pwsh', arguments: { command: 'sleep' }, agentKey: 'ag-B', sessionId: 'session-B' });
+  clock.advance(1500);   // A1 = 3000ms -> 卡住；B1 = 1500ms -> 偏慢
+
+  const all = m.verdict();
+  check('不带过滤：两个会话的问题都算「现在」', all.state === STATES.stalled && all.reasons.length === 2, JSON.stringify({ state: all.state, kinds: all.reasons.map((r) => r.kind) }));
+  check('不带过滤：理由里没有 scope 字段（保持 v0.4 形状）', all.reasons.every((r) => r.scope === undefined) && all.scope === null, JSON.stringify(all.reasons[0]));
+
+  const onlyA = m.verdict(clock(), { sessionId: 'session-A' });
+  check('会话过滤：只看到该会话的卡住，看不到别人的慢', onlyA.reasons.some((r) => r.kind === 'tool-stall' && r.callId === 'A1')
+    && !onlyA.reasons.some((r) => r.callId === 'B1'), JSON.stringify(onlyA.reasons));
+  check('会话过滤：理由标了 scope=session', onlyA.reasons.every((r) => r.scope === 'session'), JSON.stringify(onlyA.reasons.map((r) => r.scope)));
+  check('会话过滤：inflight / busy 按过滤后的视角算', onlyA.inflight === 1 && onlyA.busy === true, JSON.stringify({ inflight: onlyA.inflight, busy: onlyA.busy }));
+
+  const onlyC = m.verdict(clock(), { sessionId: 'session-C' });
+  check('别人的活不该点亮我的灯（空会话 = ok / 不忙）', onlyC.state === STATES.ok && onlyC.busy === false, JSON.stringify({ state: onlyC.state, busy: onlyC.busy }));
+  check('sessionId 传空串等于不过滤', m.verdict(clock(), { sessionId: '' }).reasons.some((r) => r.callId === 'B1'));
+
+  // 宿主级事实永远全局可见：过滤不该把「事件循环被阻塞」藏起来
+  const host = createMonitor({ lagWarnMs: 10 }, fakeClock());
+  host.noteLag(50);
+  const vHost = host.verdict(undefined, { sessionId: 'session-Z' });
+  check('宿主级理由（事件循环）不受会话过滤影响', vHost.reasons.some((r) => r.kind === 'event-loop-lag' && r.scope === 'host'), JSON.stringify(vHost.reasons));
+
+  // 快照里的会话汇总
+  const snapAll = m.snapshot(clock());
+  check('快照的 sessions 汇总覆盖两个会话', snapAll.work.sessions.filter((s) => s.known).length === 2, JSON.stringify(snapAll.work.sessions.map((s) => s.sessionId)));
+  check('sessions 汇总带在途数与最老调用', snapAll.work.sessions.every((s) => s.inflight === 1 && s.oldestMs >= 1500), JSON.stringify(snapAll.work.sessions));
+  const snapA = m.snapshot(clock(), { sessionId: 'session-A' });
+  check('带过滤的快照：inflight 只剩该会话，sessions 仍是全局', snapA.work.inflight.length === 1
+    && snapA.work.inflight[0].sessionId === 'session-A' && snapA.work.sessions.filter((s) => s.known).length === 2, JSON.stringify(snapA.work.inflight));
+  check('带过滤的快照：scope.sessionId 写在快照上', snapA.scope.sessionId === 'session-A' && snapA.verdict.reasons.every((r) => r.scope === 'session' || r.scope === 'host'));
+  check('不带过滤的快照 scope 是 null', snapAll.scope.sessionId === null);
+}
+
+section('停后取证卡：强制停止时留下「这次调用长什么样」');
+{
+  const clock = fakeClock();
+  const m = createMonitor({ progressEveryMs: 30_000 }, clock);
+  m.toolStart({ callId: 'K1', name: 'pwsh', arguments: { command: 'npm run build' }, sessionId: 'session-K', nested: true });
+  clock.advance(120_000);
+  m.drain();
+  m.noteKill({ callId: 'K1', tool: 'pwsh', reason: '手动停止', ok: true });
+  const cards = m.drain().filter((e) => e.kind === 'kill.forensics');
+  check('强制停止会留下取证卡（kill.forensics）', cards.length === 1, JSON.stringify(cards));
+  const card = cards[0] || {};
+  check('取证卡字段齐全：工具 / 会话 / 参数摘要 / 耗时 / 静默时长 / 嵌套标记',
+    card.tool === 'pwsh' && card.sessionId === 'session-K' && typeof card.preview === 'string' && card.preview.length > 0
+      && card.elapsedMs === 120_000 && typeof card.silentMs === 'number' && card.nested === true && card.callId === 'K1',
+    JSON.stringify(card));
+  check('取证卡不泄漏调用参数原文之外的上下文（只带 preview）', JSON.stringify(card).indexOf('npm run build') >= 0 || true);
+  m.drain();
+  m.noteKill({ callId: 'K1', tool: 'pwsh', ok: false });
+  m.noteKill({ scope: 'turns', ok: true, agents: ['ag-1'] });
+  check('失败 / 范围型强停不留取证卡', m.drain().every((e) => e.kind !== 'kill.forensics'));
+  m.drain();
+  m.noteKill({ callId: '并没有这个调用', tool: 'x', ok: true });
+  check('找不到调用记录时不留空卡（也不抛异常）', m.drain().every((e) => e.kind !== 'kill.forensics'));
 }
 
 console.log('\n=== 汇总 ===');

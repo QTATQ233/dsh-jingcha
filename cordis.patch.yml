@@ -63,3 +63,10 @@
         memoryLeakWindow: 5
         # 同一窗口内首尾增幅超过这个比例才算（0.1 = 10%）。调大更保守。
         memoryLeakGrowth: 0.1
+
+        # ── 判定规则可编排 ──────────────────────────────────────────────────
+        # 不想让某条规则参与判定，就把它的 id 写进来（内置 8 条：
+        #   inflight-calls / event-loop / memory-leak / no-progress /
+        #   error-storm / failure-loop / agent-error-loop / plugin-error）。
+        # 第三方规则不是配置项：用 core 的 monitor.registerRule({ id, evaluate }) 注册。
+        disabledRules: []

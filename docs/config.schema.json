@@ -140,6 +140,12 @@
       "default": 0.1,
       "description": "内存泄漏预警：窗口内首尾增幅超过这个比例才算（0.1 = 10%）。"
     },
+    "disabledRules": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+      "default": [],
+      "description": "不参与判定的规则 id。内置 8 条：inflight-calls / event-loop / memory-leak / no-progress / error-storm / failure-loop / agent-error-loop / plugin-error；第三方规则用 monitor.registerRule() 注册。"
+    },
     "rssWarnBytes": {
       "type": "integer",
       "minimum": 0,

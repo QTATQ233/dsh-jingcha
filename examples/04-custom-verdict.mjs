@@ -1,44 +1,65 @@
 #!/usr/bin/env node
 /**
- * 示例 04：直接用 lib/core.js（纯逻辑、零依赖）自己造一条判定。
+ * 示例 04：用 0.5 的注册 API 加一条自己的判定规则（不改宿主、不改 core）。
  *
- * 这说明"加判定规则"不需要改宿主：core 可以被独立引入、喂数据、拿结论。
+ * 对照：
+ *   本文件          = 新方式：monitor.registerRule({ id, evaluate })，可开关、可注销、进事件流；
+ *   04a-old-way.mjs = 0.5 之前的兼容写法：直接 createMonitor 喂事实、拿 verdict。
  */
-import { createMonitor, formatBytes, formatDuration } from '../lib/core.js';
+import { createMonitor } from '../lib/core.js';
 
 let clock = 1_700_000_000_000;
 const now = () => clock;
-const monitor = createMonitor({ slowCallMs: 5_000, hangCallMs: 10_000, stuckCallMs: 20_000, memoryLeakWindow: 3, memoryLeakGrowth: 0.05 }, now);
+const monitor = createMonitor({ slowCallMs: 5_000 }, now);
 
-// 1) 一次正常调用
-monitor.toolStart({ callId: 'c1', name: 'pwsh', arguments: { command: 'git status' } });
-clock += 800;
-monitor.toolFinish({ callId: 'c1', isError: false, contentBytes: 512 });
-console.log('① 正常调用后：' + monitor.verdict().state);
+console.log('① 注册自定义规则 long-shell（pwsh 跑过 4 分钟就报，并把状态升级为 stalled）');
+const cancel = monitor.registerRule({
+  id: 'long-shell',
+  title: 'shell 调用超过 4 分钟',
+  escalate: 'stall',
+  evaluate(ctx) {
+    return ctx.inflight
+      .filter((c) => c.tool === 'pwsh' && c.elapsedMs >= 4 * 60_000)
+      .map((c) => ({
+        kind: 'shell-slow',
+        severity: 'warn',
+        tool: c.tool,
+        callId: c.callId,
+        elapsedMs: c.elapsedMs,
+        text: 'pwsh 已跑 ' + ctx.helpers.formatDuration(c.elapsedMs),
+      }));
+  },
+});
+console.log('   注册' + (typeof cancel === 'function' ? '成功（返回取消函数）' : '失败（契约不合或 id 重复）'));
 
-// 2) 一个卡住的调用
-monitor.toolStart({ callId: 'c2', name: 'run_code', arguments: { code: 'while (true) {}' } });
-clock += 25_000;
+// 造事实：一个跑了 4 分 10 秒的 pwsh
+monitor.toolStart({ callId: 'c1', name: 'pwsh', arguments: { command: 'npm run build' } });
+clock += 250_000;
 monitor.tick(clock);
-const stalled = monitor.verdict();
-console.log('② 卡住 25s 后：' + stalled.state + '  理由：' + stalled.reasons.map((r) => r.kind).join(','));
+const hit = monitor.verdict();
+console.log('② 命中：state=' + hit.state + '  理由=' + hit.reasons.map((r) => r.kind).join(','));
+console.log('   （shell-slow 是 warn，escalate: stall 把整体状态升到了 stalled）');
 
-// 3) 内存持续增长
-let rss = 200 * 1024 * 1024;
-for (let i = 0; i < 4; i++) {
-  monitor.noteMemory(rss, clock);
-  rss = Math.round(rss * 1.08);
-  clock += 1_000;
-  monitor.tick(clock);
+// 运行期停用 / 再启用
+monitor.setRuleEnabled('long-shell', false);
+console.log('③ 停用后理由=' + monitor.verdict().reasons.map((r) => r.kind).join(',') + '（shell-slow 消失，内置理由还在）');
+monitor.setRuleEnabled('long-shell', true);
+
+// 规则清单：来源 / 开关 / 升级语义 / 抛错次数
+const rules = monitor.listRules();
+console.log('④ 规则清单（' + rules.length + ' 条，含内置 8 条）：');
+for (const r of rules) {
+  console.log('   - ' + r.id + '  [' + r.source + ']  enabled=' + r.enabled + '  escalate=' + r.escalate + '  failures=' + r.failures);
 }
-const leak = monitor.verdict().reasons.find((r) => r.kind === 'memory-leak');
-console.log('③ 连续增长后：' + (leak ? leak.text : '（未触发）'));
 
-// 4) 自己拼一份摘要（宿主报告里的格式）
-const snapshot = monitor.snapshot(clock);
-console.log('④ 快照：判定=' + snapshot.verdict.state +
-  ' · 在途=' + snapshot.work.inflight.length +
-  ' · 延迟=' + formatDuration(snapshot.runtime.eventLoopLagMs) +
-  ' · RSS=' + formatBytes(snapshot.runtime.rssBytes) +
-  ' · 内存采样=' + snapshot.runtime.memoryLeak.samples + ' 个');
-console.log('   （core.js 是纯逻辑：没有 IO、没有定时器、没有第三方依赖）');
+// 失败隔离：规则抛错不中断判定，只记账（failures + plugin.error）
+monitor.registerRule({ id: 'broken-rule', title: '故意抛错', evaluate() { throw new Error('boom'); } });
+const after = monitor.verdict();
+const broken = monitor.listRules().find((r) => r.id === 'broken-rule');
+console.log('⑤ 抛错规则：判定照常返回（state=' + after.state + '，理由=' + after.reasons.map((r) => r.kind).join(',') + '）');
+console.log('   broken-rule failures=' + broken.failures + '（不影响其它规则与调用）');
+monitor.unregisterRule('broken-rule');
+
+// 注销（registerRule 的返回值也能取消）
+console.log('⑥ 注销 long-shell：' + monitor.unregisterRule('long-shell'));
+console.log('   之后理由=' + monitor.verdict().reasons.map((r) => r.kind).join(','));

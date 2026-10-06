@@ -78,7 +78,7 @@
 | ![浅色模式](docs/assets/screenshot-light.png) | ![深色模式](docs/assets/screenshot-dark.png) |
 
 - **胶囊**：状态点 + 判定文字（有在途调用时显示「pwsh 1m33s」）；拖动可移动，位置自动记住；
-- **面板**：判定（含事件循环延迟与调用计数）/ 在途调用（每条带 ⛔ 强停）/ 最近告警 / 设置，四段可折叠；
+- **面板**：判定（含事件循环延迟与调用计数）/ 在途调用（每条带 ⛔ 强停）/ 最近告警 / 设置 / 时间线，五段可折叠；
 - **灯色**：按调用时长分级 —— 不超过黄灯秒是绿、不超过红灯秒是黄、超过就是红（呼吸动画）；
 - **深色与浅色**：胶囊、面板、色板共用**同一个基底色**派生，字色跟着底色走，不会出现「深底白字」。
 
@@ -90,8 +90,8 @@
 dsh plugin --profile web add github:QTATQ233/dsh-jingcha
 
 # 自检（零依赖，不需要 dsh 在跑）
-node test/verify.mjs          # 121 项
-node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
+node test/verify.mjs          # 179 项
+node test/verify-client.mjs   # 111 项（挂件，DOM 桩）
 ```
 
 不想走插件通道？仓库里也有 tools/install.ps1：建 junction + 改 profile manifest，**改前自动备份、可整体回滚**。
@@ -100,6 +100,7 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 <a id="功能一览"></a>
 ## ✨ 功能一览
 
+- **0.5.0 新特性**：判定规则可编排（内置 8 条 + 第三方 `registerRule` 注册）、`?session=` 会话维度过滤、挂件 5 分钟迷你时间线、强停取证卡；
 - **监察**：在 tools/pre-execute、tools/execute、tools/result 三层只读观察，记录耗时、结果字节、错误分类；
 - **判定**：慢 / 挂起 / 卡住 / 静默（有 agent 在跑却没有输出）/ 等待审批 / 错误风暴 / **内存泄漏预警** / 插件自身报错；
 - **强停**：融合一个属于鲸察的 AbortController（**上游取消语义不变**），并且**在 pre-execute 就登记** ——
@@ -123,6 +124,8 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 | 内存泄漏预警 | RSS 连续 5 个心跳递增，且增幅超过 10%（memoryLeakWindow / memoryLeakGrowth） | 确认是不是真泄漏；长任务本身在涨就调大窗口或阈值 |
 | 插件自身报错 | 鲸察自己抛异常 | 报告 bug（它保证**不反过来搞坏工具调用**） |
 
+> 判定规则可编排：内置 8 条可用 `disabledRules` 按 id 停用，第三方可用 core 的 `monitor.registerRule({ id, evaluate })` 注册（配 `unregisterRule` / `setRuleEnabled` / `listRules`）；升级语义与失败隔离见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 <a id="配置"></a>
 ## ⚙️ 配置
 
@@ -140,6 +143,7 @@ node test/verify-client.mjs   #  90 项（挂件，DOM 桩）
 | memoryLeakWindow / memoryLeakGrowth | 5 / 0.1 | 内存泄漏预警：连续多少个心跳递增、增幅超过多少才算 |
 | previewArgs / redactPreviews | true / true | 是否记录参数摘要 / 是否对 token、password 一类片段打码 |
 | apiToken | 空 | 设了就要求 x-jingcha-token 头（多用户机器建议设） |
+| disabledRules | [] | 停用内置判定规则的 id 列表（内置 8 条见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）；第三方规则用 `monitor.registerRule()` 注册 |
 
 <a id="安全边界"></a>
 ## 🔒 安全边界
@@ -196,7 +200,7 @@ lib/client.js  浏览器挂件（单文件 bundle，零 require）
 ## 🏗️ 架构与状态机
 
 数据流、五个状态之间的迁移条件、13 种 reason kind 的严重度与去处，以及"为什么这么设计"的六条取舍，
-都画在 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（含两张 Mermaid 图：组件数据流 + 判定状态机）。
+都画在 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（含三张 Mermaid 图：组件数据流、判定状态机、规则编排）。
 
 - **优先级**：`stalled` > `erroring` > `degraded` > `busy` / `ok` —— 一个卡住的调用不会被一堆小告警淹没；
 - **强停原理**：pre-execute 就装上自己的 AbortController 并替换 `exec.signal`，DSH 派发时与 callerSignal 融合，
@@ -209,12 +213,12 @@ lib/client.js  浏览器挂件（单文件 bundle，零 require）
 | 产物 | 文件 | 用途 |
 |---|---|---|
 | OpenAPI 3.1 | **[docs/openapi.yaml](docs/openapi.yaml)** | 四个本机接口的完整契约（含准入规则、错误码、全部响应字段） |
-| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | `cordis.patch.yml` 里 `config:` 的 28 个字段：类型 / 默认值 / 取值范围 / 说明 |
+| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | `cordis.patch.yml` 里 `config:` 的 32 个字段：类型 / 默认值 / 取值范围 / 说明 |
 
 接口速览（全部要求回环 + Host 白名单；变更类要 POST + `application/json`）：
 
 ```http
-GET  /api/jingcha/status      # 实时判定 + 在途调用 + 最近告警（与 status.json 同源）
+GET  /api/jingcha/status      # 实时判定 + 在途调用 + 会话汇总 + 规则表 + 最近告警；?session=<id> 只看某个会话
 POST /api/jingcha/kill        # { "callId": "..." } 或 { "scope": "stalled|all" }
 POST /api/jingcha/stop        # 停掉所有在跑的轮次
 GET  /api/jingcha/settings    # 读挂件设置（含默认值）
@@ -224,14 +228,15 @@ POST /api/jingcha/settings    # 写挂件设置（字段白名单 + 数值夹紧
 <a id="示例"></a>
 ## 🧪 示例
 
-[examples/](examples/) 里四个零依赖脚本，直接 `node` 跑：
+[examples/](examples/) 里五个零依赖脚本，直接 `node` 跑：
 
 | 脚本 | 用途 |
 |---|---|
 | [01-read-status.mjs](examples/01-read-status.mjs) | 读快照打印判定；状态不是 ok/busy 时退出码 1（可挂定时任务 / CI） |
 | [02-watch-http.mjs](examples/02-watch-http.mjs) | 每 2 秒拉一次接口，只在判定变差时打印 |
 | [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | 列出在途调用并强停指定 / 最久的那个；**默认 dry-run** |
-| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | 直接用 `lib/core.js` 造一条判定（演示可扩展性） |
+| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | 用 `registerRule` 注册一条自定义判定规则（含启用/停用与升级语义） |
+| [04a-old-way.mjs](examples/04a-old-way.mjs) | 0.5 之前的兼容写法：直接 `createMonitor` 喂事实、拿 verdict |
 
 <a id="术语表"></a>
 ## 📔 术语表
@@ -241,7 +246,7 @@ POST /api/jingcha/settings    # 写挂件设置（字段白名单 + 数值夹紧
 <a id="路线图"></a>
 ## 🗺️ 路线图
 
-**[ROADMAP.md](ROADMAP.md)**：0.5（判定规则可编排 / 会话维度过滤 / 停后取证）· 0.6（i18n / 配置校验 / 指标导出）· 1.0（契约单一化 / 静默失败可观测）。
+**[ROADMAP.md](ROADMAP.md)**：0.5（判定规则可编排 / 会话维度过滤 / 停后取证 / 挂件时间线）已落地，见 [CHANGELOG.md](CHANGELOG.md)；下一步 0.6（i18n / 配置校验 / 指标导出）· 1.0（契约单一化 / 静默失败可观测）。
 明确不做：自动改工具调用、默认联网上报、硬杀同进程死循环、默认把观测塞进模型上下文。
 <a id="文档"></a>
 ## 📚 文档
@@ -256,7 +261,7 @@ POST /api/jingcha/settings    # 写挂件设置（字段白名单 + 数值夹紧
 | [docs/GLOSSARY.md](docs/GLOSSARY.md) | 术语表（中英对照） |
 | [docs/openapi.yaml](docs/openapi.yaml) | 接口的 OpenAPI 3.1 契约 |
 | [docs/config.schema.json](docs/config.schema.json) | 配置的 JSON Schema |
-| [examples/](examples/) | 四个可直接运行的零依赖示例 |
+| [examples/](examples/) | 五个可直接运行的零依赖示例 |
 | [ROADMAP.md](ROADMAP.md) | 路线图与「明确不做」 |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 贡献者公约 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本记录 |

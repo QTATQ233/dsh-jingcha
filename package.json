@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-jingcha",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
   "description": "鲸察 (dsh-jingcha) · DSH 运行时监察插件：工具调用 / 事件循环 / 错误风暴的实时体检，支持按调用强制停止",
   "type": "module",

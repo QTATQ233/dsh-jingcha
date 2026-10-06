@@ -82,7 +82,7 @@ You ask the model to run something; the UI says "running" and then says nothing 
 | ![panel](docs/assets/screenshot-panel-detail.png) | ![capsule](docs/assets/screenshot-capsule.png) |
 
 - **Capsule** — a status dot plus the verdict, or "pwsh 1m33s" while something runs. Drag it anywhere; the position is remembered.
-- **Panel** — four collapsible sections: verdict (with event-loop lag and call counters), in-flight calls (each with a ⛔ force-stop button), recent alerts, settings.
+- **Panel** — five collapsible sections: verdict (with event-loop lag and call counters), in-flight calls (each with a ⛔ force-stop button), recent alerts, settings, and the 5-minute timeline.
 - **Light colour** — derived client-side from call duration: green under the yellow threshold, yellow under the red one, red (with a breathing dot) beyond it.
 - **One palette** — capsule, panel, palette and toast all derive from a single base colour, and the text colour follows the base, so dark mode never shows white-on-white.
 
@@ -94,8 +94,8 @@ You ask the model to run something; the UI says "running" and then says nothing 
 dsh plugin --profile web add github:QTATQ233/dsh-jingcha
 
 # Self-tests: zero dependencies, dsh does not need to be running
-node test/verify.mjs          # 121 checks
-node test/verify-client.mjs   #  90 checks (widget, DOM stubs)
+node test/verify.mjs          # 179 checks
+node test/verify-client.mjs   # 111 checks (widget, DOM stubs)
 ```
 
 Prefer to skip pnpm? tools/install.ps1 creates a junction, edits the profile manifest, backs it up first and can roll the whole thing back. See [docs/SHARING.md](docs/SHARING.md) for install, uninstall and a pre-share safety checklist.
@@ -103,6 +103,7 @@ Prefer to skip pnpm? tools/install.ps1 creates a junction, edits the profile man
 <a id="features"></a>
 ## ✨ Features
 
+- **0.5.0 additions** — composable verdict rules (8 built-ins plus third-party registration via `registerRule`), per-session filtering (`?session=<id>`), a 5-minute widget timeline, and force-stop forensics cards;
 - **Observation** — read-only hooks on tools/pre-execute, tools/execute and tools/result; every monitoring path is wrapped in safe(), so an internal error can never damage the call it is watching.
 - **Verdicts** — slow, hanging, stuck, silent (an agent is running but nothing is streaming), awaiting approval, error storm, memory-leak warning, and the plugin's own errors.
 - **Force stop** — Jingcha fuses its own AbortController into exec.signal while leaving upstream cancellation semantics intact, and registers it already during pre-execute, so nested sub-calls (parent id plus a :ptc: suffix) can be stopped too. When it cannot stop something it says why — for example, it refuses to kill a parent call just because you aimed at a child.
@@ -124,6 +125,8 @@ Prefer to skip pnpm? tools/install.ps1 creates a junction, edits the profile man
 | memory leak warning | RSS rises for 5 consecutive heartbeats and grows more than 10% (memoryLeakWindow / memoryLeakGrowth) | confirm whether it is a real leak; raise the window or threshold when the workload legitimately grows |
 | plugin error | Jingcha itself threw | file a bug — it is designed never to break tool calls |
 
+> Rules are composable: disable any of the 8 built-ins by id via `disabledRules`, or register your own with core's `monitor.registerRule({ id, evaluate })` (plus `unregisterRule` / `setRuleEnabled` / `listRules`). Escalation and failure isolation are described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 <a id="configuration"></a>
 ## ⚙️ Configuration
 
@@ -132,7 +135,7 @@ Every key lives in [cordis.patch.yml](cordis.patch.yml) with inline comments, an
 dataDir · displayName · toolEnabled · slowCallMs / hangCallMs / stuckCallMs · silenceMs · lagWarnMs / lagStuckMs ·
 approvalWarnMs · errorStormCount / errorStormWindowMs · emptyResultBytes · heartbeatMs / statusEveryMs ·
 progressEveryMs / consoleProgressMs · maxLogBytes · autoKillAfterMs · memoryLeakWindow / memoryLeakGrowth ·
-previewArgs / redactPreviews / redactPatterns · apiToken
+previewArgs / redactPreviews / redactPatterns · apiToken · disabledRules
 
 <a id="security"></a>
 ## 🔒 Security
@@ -155,7 +158,7 @@ By default Jingcha registers no model-visible tool (extras.tool is null in statu
 <a id="architecture-and-state-machine"></a>
 ## 🏗️ Architecture and state machine
 
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has two Mermaid diagrams — a component/data-flow chart and the verdict state machine — plus the severity and destination of every reason kind and the six design trade-offs behind them.
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has three Mermaid diagrams — a component/data-flow chart, the verdict state machine and the rule pipeline — plus the severity and destination of every reason kind and the six design trade-offs behind them.
 
 - Priority: stalled > erroring > degraded > busy / ok, so one stuck call is never buried under a pile of warnings.
 - Force-stop works because Jingcha swaps exec.signal for its own fused AbortController during pre-execute and restores it when the call ends.
@@ -167,10 +170,10 @@ By default Jingcha registers no model-visible tool (extras.tool is null in statu
 | Artifact | File | Purpose |
 |---|---|---|
 | OpenAPI 3.1 | **[docs/openapi.yaml](docs/openapi.yaml)** | The full contract of the four endpoints: guard rules, error codes, every response field |
-| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | The 28 config fields with types, defaults, ranges and descriptions |
+| Config JSON Schema | **[docs/config.schema.json](docs/config.schema.json)** | The 32 config fields with types, defaults, ranges and descriptions |
 
 ```http
-GET  /api/jingcha/status      # verdict + in-flight calls + recent alerts (same source as status.json)
+GET  /api/jingcha/status      # verdict + in-flight calls + session summary + rule table + recent alerts; ?session=<id> to scope to one session
 POST /api/jingcha/kill        # { "callId": "..." } or { "scope": "stalled|all" }
 POST /api/jingcha/stop        # cancel every running turn
 GET  /api/jingcha/settings    # read widget settings (plus defaults)
@@ -180,14 +183,15 @@ POST /api/jingcha/settings    # write them (field allow-list, values clamped, th
 <a id="examples"></a>
 ## 🧪 Examples
 
-Four zero-dependency scripts in [examples/](examples/), all runnable with node:
+Five zero-dependency scripts in [examples/](examples/), all runnable with node:
 
 | Script | What it does |
 |---|---|
 | [01-read-status.mjs](examples/01-read-status.mjs) | prints the verdict from status.json; exits 1 when the state is not ok/busy, so it drops straight into cron or CI |
 | [02-watch-http.mjs](examples/02-watch-http.mjs) | polls the HTTP endpoint and only prints when the verdict changes |
 | [03-kill-runaway.mjs](examples/03-kill-runaway.mjs) | lists in-flight calls and stops a chosen (or the longest) one — dry-run unless you pass --yes |
-| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | drives lib/core.js directly to build a verdict, showing how little is needed to extend it |
+| [04-custom-verdict.mjs](examples/04-custom-verdict.mjs) | registers a custom verdict rule via `registerRule` (enable/disable and escalation included) |
+| [04a-old-way.mjs](examples/04a-old-way.mjs) | the pre-0.5 way: drive `createMonitor` directly and read the verdict |
 
 <a id="glossary"></a>
 ## 📔 Glossary
@@ -197,7 +201,7 @@ Verdict, state, reason, finding, in-flight, stuck, silent, fused signal, nested 
 <a id="roadmap"></a>
 ## 🗺️ Roadmap
 
-**[ROADMAP.md](ROADMAP.md)** — 0.5 (composable rules, per-session filtering, post-stop forensics), 0.6 (i18n, config validation, optional metrics export), 1.0 (single settings contract, observable swallowed failures). Explicitly out of scope: mutating tool calls, telemetry by default, hard-killing in-process loops, and pushing observations into the model context by default.
+**[ROADMAP.md](ROADMAP.md)** — 0.5 (composable rules, per-session filtering, post-stop forensics, widget timeline) has shipped, see [CHANGELOG.md](CHANGELOG.md); next up 0.6 (i18n, config validation, optional metrics export), 1.0 (single settings contract, observable swallowed failures). Explicitly out of scope: mutating tool calls, telemetry by default, hard-killing in-process loops, and pushing observations into the model context by default.
 
 <a id="faq"></a>
 ## ❓ FAQ
@@ -219,7 +223,7 @@ Verdict, state, reason, finding, in-flight, stuck, silent, fused signal, nested 
 | [docs/SHARING.md](docs/SHARING.md) | install for others, uninstall, pre-share checklist |
 | [docs/EXTENDING.md](docs/EXTENDING.md) | the minimal edits behind the five common changes |
 | [docs/PUBLISHING.md](docs/PUBLISHING.md) | maintainer release flow |
-| [examples/](examples/) | four runnable, dependency-free examples |
+| [examples/](examples/) | five runnable, dependency-free examples |
 | [lib/WIDGET-SPEC.md](lib/WIDGET-SPEC.md) | widget specification and acceptance list |
 | [ROADMAP.md](ROADMAP.md) | where this is going, and what it will never do |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | community expectations |

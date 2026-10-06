@@ -6,22 +6,27 @@
 | 判定 | verdict | 某一时刻的整体结论：state + reasons + 若干计量（在途数、延迟、静默时长…） |
 | 状态 | state | 五档：ok 正常 · busy 运行中 · degraded 偏慢 · erroring 出错 · stalled 疑似卡住 |
 | 理由 | reason / reason kind | 支撑判定的单条依据，如 tool-stall、memory-leak；带 severity 与可读文本 |
+| 规则 | rule | 判定的一条独立规则：`{ id, title, evaluate(ctx), escalate? }`，命中就吐理由；内置 8 条，第三方可注册 |
+| 规则编排 | rule registry | 把判定从长 if 链抽成规则表：`registerRule` / `unregisterRule` / `setRuleEnabled` / `listRules`，含升级语义与失败隔离 |
 | 告警 | finding | 需要留下痕迹的事件（比 reason 更"事件化"，写进快照的 findings 与挂件的「最近告警」） |
 | 在途 | inflight | 已经开始但还没结束的工具调用 |
 | 卡住 | stuck | 在途时间超过 stuckCallMs（默认 5 分钟）**且**期间没有产出 |
 | 挂起 | hang | 在途时间超过 hangCallMs（默认 2 分钟），程度轻于"卡住" |
 | 静默 | silent / silenceMs | 有 agent 在跑，但这么长时间没有任何流式帧 / 会话事件 / 工具结果 |
+| 会话过滤 | session filter | `GET /api/jingcha/status?session=<id>`：只看某个会话；只有会话级理由受它影响，宿主级理由（事件循环等）始终全局 |
 | 进度心跳 | progressEveryMs | 长调用期间每隔这么久往事件流写一条 tool.progress，让"还在动"可见 |
 | 心跳 | heartbeat / heartbeatMs | 宿主的定时器（默认 1 秒）：采样延迟与 RSS、推进判定、写快照 |
 | 事件循环延迟 | event-loop lag | 定时器本该 1 秒触发却晚了多少毫秒；大了说明有同步长任务 |
 | 强制停止 | force stop / kill | 中止一次在途调用：中止鲸察融合出来的 AbortController 信号 |
+| 取证卡 | evidence card / forensics | 强停成功时留下的一张事件卡（`kill.forensics`）：工具 / 会话 / 参数摘要 / 耗时 / 静默时长 / 嵌套标记 |
 | 融合信号 | fused signal | 把"上游 callerSignal"和"鲸察的信号"合成一个：上游取消照旧、我们也能主动掐断 |
 | 调用 id | callId | 一次工具调用的标识；嵌套子调用形如「父id:ptc:序号」 |
 | 嵌套子调用 | nested / ptc | run_code 里发起的工具调用；它不一定会走 tools/execute，所以登记提前到 pre-execute |
 | 轮次 | turn | 模型的一次完整回合；「停止所有轮次」= 取消所有在跑的 agent |
 | 挂件 | widget | 右下角的悬浮 UI（胶囊 + 面板 + 提示框 + 找回胶囊） |
 | 胶囊 | capsule | 挂件的收起形态：状态点 + 判定文字 |
-| 面板 | panel | 点开胶囊后的浮层：判定 / 在途调用 / 最近告警 / 设置 |
+| 面板 | panel | 点开胶囊后的浮层：判定 / 在途调用 / 最近告警 / 设置 / 时间线 |
+| 时间线 | timeline | 面板里最近 5 分钟（30 段）的判定色块：本地采样有界、按级别上色、悬停看理由、可折叠 |
 | 灯色 | light level | 胶囊状态点的颜色：绿 / 黄 / 橙 / 红 / 灰（由**调用时长**分级，阈值可调） |
 | 数据目录 | dataDir | status.json、events.jsonl、widget-settings.json 所在目录（默认 %DSH_HOME%/data/dsh-jingcha） |
 | 快照 | snapshot / status.json | 原子替换的实时状态文件（schema: jingcha/status@1） |
